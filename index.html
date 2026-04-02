@@ -1,198 +1,97 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">   
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-
-<style>
-body {
-  -webkit-user-select: none;
-  user-select: none;
-}
-
-button {
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-  touch-action: manipulation;
-  font-size: 20px;
-  padding: 20px;
-}
-
-#log {
-  background:#000;
-  color:#0f0;
-  font-size:12px;
-  height:150px;
-  overflow:auto;
-}
-</style>
-
-</head>
-
-<body>
-
-<h2>業務用インカム</h2>
-
-<p>自分: <span id="myId"></span></p>
-<p>話者: <span id="speaker">なし</span></p>
-
-<button id="talk">🎤 話す</button>
-
-<div id="log"></div>
-
 <script>
 
-// ===== ログ関数 =====
-function log(msg){
-    console.log(msg);
-    let el = document.getElementById("log");
-    el.innerHTML += msg + "<br>";
-}
-
-// ===== Peer =====
-let peer = new Peer();
-
 // ===== WebSocket =====
-let socket = new WebSocket("wss://peerjs-server-etm4.onrender.com");
-
-socket.onopen = ()=>{
-    log("WS接続OK");
-};
-
-socket.onerror = (e)=>{
-    log("WSエラー");
-};
+let socket = new WebSocket("wss://あなたのサーバーURL");
 
 // ===== 状態 =====
-let localStream;
 let currentSpeaker = null;
-let connectedPeers = {};
+let myId = null;
 
-// ===== マイク =====
-navigator.mediaDevices.getUserMedia({audio:true})
-.then(stream=>{
-    localStream = stream;
-    stream.getAudioTracks()[0].enabled = false;
-    log("マイクOK");
-})
-.catch(e=>{
-    log("マイクエラー");
-});
+// ===== 接続 =====
+socket.onopen = () => log("WS接続OK");
 
-// ===== Peer接続 =====
-peer.on("open", id=>{
-    log("PeerID: " + id);
+socket.onerror = () => log("WSエラー");
 
-    document.getElementById("myId").textContent = id;
-
-    socket.send(JSON.stringify({
-        type:"join",
-        id:id
-    }));
-});
-
-// ===== 通話受信 =====
-peer.on("call", call=>{
-    call.answer(localStream);
-
-    call.on("stream", remoteStream=>{
-        log("音声受信");
-
-        let audio = new Audio();
-        audio.srcObject = remoteStream;
-        audio.play().catch(()=>{});
-    });
-});
-
-// ===== WebSocket受信 =====
 socket.onmessage = msg => {
 
     let data = JSON.parse(msg.data);
 
-    log("WS受信: " + data.type);
+    log("WS: " + data.type);
 
-    if(data.type === "userList"){
-
-        data.users.forEach(id=>{
-
-            if(id !== peer.id && !connectedPeers[id]){
-
-                log("接続: " + id);
-
-                let call = peer.call(id, localStream);
-
-                call.on("stream", remoteStream=>{
-                    log("音声受信（発信側）");
-
-                    let audio = new Audio();
-                    audio.srcObject = remoteStream;
-                    audio.play().catch(()=>{});
-                });
-
-                connectedPeers[id] = true;
-            }
-
-        });
+    // 自分のID
+    if (data.type === "yourId") {
+        myId = data.id;
+        document.getElementById("myId").textContent = myId;
     }
 
-    if(data.type === "speaker"){
+    // 話者更新
+    if (data.type === "speaker") {
         currentSpeaker = data.id;
 
         document.getElementById("speaker").textContent =
-            data.id ? data.id : "なし";
+            currentSpeaker ? currentSpeaker : "なし";
     }
 
+    // 👇 ここに追加
+    if(data.type === "busy"){
+        log("他の人が話しています");
+
+    // キュー（任意）
+    
+    }
 };
 
-// ===== ボタン =====
-let talk = document.getElementById("talk");
-
-talk.addEventListener("touchstart", e=>{
-    e.preventDefault();
-    log("タッチ開始");
-
-    if(!peer.id){
-        log("IDなし");
-        return;
-    }
-
-    if(socket.readyState !== 1){
-        log("WS未接続");
-        return;
-    }
-
-    socket.send(JSON.stringify({
-        type:"requestTalk",
-        id:peer.id
-    }));
-});
-
-talk.addEventListener("touchend", e=>{
-    e.preventDefault();
-    log("タッチ終了");
-
-    if(!peer.id) return;
-    if(socket.readyState !== 1) return;
-
-    socket.send(JSON.stringify({
-        type:"stopTalk",
-        id:peer.id
-    }));
-});
+// ===== マイク =====
+navigator.mediaDevices.getUserMedia({ audio: true })
+.then(stream => {
+    localStream = stream;
+    stream.getAudioTracks()[0].enabled = false;
+    log("マイクOK");
+})
+.catch(() => log("マイクNG"));
 
 // ===== 発言制御 =====
-setInterval(()=>{
+setInterval(() => {
 
-    if(localStream){
+    if (localStream) {
         localStream.getAudioTracks()[0].enabled =
-            (currentSpeaker === peer.id);
+            (currentSpeaker === myId);
     }
 
-},100);
+}, 100);
+
+// ===== ボタン（PC + スマホ対応） =====
+let talk = document.getElementById("talk");
+
+function requestTalk() {
+    if (socket.readyState !== 1) return;
+
+    socket.send(JSON.stringify({
+        type: "requestTalk"
+    }));
+}
+
+function stopTalk() {
+    if (socket.readyState !== 1) return;
+
+    socket.send(JSON.stringify({
+        type: "stopTalk"
+    }));
+}
+
+// スマホ
+talk.addEventListener("touchstart", e => {
+    e.preventDefault();
+    requestTalk();
+});
+
+talk.addEventListener("touchend", e => {
+    e.preventDefault();
+    stopTalk();
+});
+
+// PC
+talk.addEventListener("mousedown", requestTalk);
+talk.addEventListener("mouseup", stopTalk);
 
 </script>
-
-</body>
-</html>
