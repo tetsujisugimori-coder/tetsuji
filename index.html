@@ -7,8 +7,22 @@
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
 <style>
-body { user-select:none; }
-button { font-size:20px; padding:20px; margin-right:10px; }
+body {
+  user-select:none;
+  -webkit-user-select:none;
+}
+
+button {
+  font-size:20px;
+  padding:20px;
+  margin-right:10px;
+
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
+  touch-action:manipulation;
+}
+
 #log {
   background:#000;
   color:#0f0;
@@ -99,7 +113,7 @@ async function init(){
         log("マイクNG: " + e.message);
     }
 
-    // audio（ここでは作るだけ）
+    // audio作成
     audioElement = new Audio();
     audioElement.setAttribute("playsinline", true);
     audioElement.muted = false;
@@ -194,33 +208,38 @@ setInterval(() => {
 let talk = document.getElementById("talk");
 let lockBtn = document.getElementById("lockTalk");
 
-// ★ 最重要：ここで再生を許可する
-talk.addEventListener("click", async () => {
+// ===== 話すボタン =====
+async function handleTalkStart(e){
+    e.preventDefault();
 
-    // 初期化
     await init();
 
-    // audio再生許可
     try{
         await audioElement.play();
         log("audio再生成功");
-    }catch(e){
-        log("audio再生失敗: " + e.message);
+    }catch(err){
+        log("audio再生失敗: " + err.message);
     }
 
-    // 発言要求
     socket.send(JSON.stringify({ type:"requestTalk" }));
-});
+}
 
-// 離したとき
-talk.addEventListener("mouseup", () => {
-    socket.send(JSON.stringify({ type:"stopTalk", id: myId }));
-});
-
-talk.addEventListener("touchend", e=>{
+function handleTalkEnd(e){
     e.preventDefault();
-    socket.send(JSON.stringify({ type:"stopTalk", id: myId }));
-});
+
+    socket.send(JSON.stringify({
+        type:"stopTalk",
+        id: myId
+    }));
+}
+
+// スマホ
+talk.addEventListener("touchstart", handleTalkStart);
+talk.addEventListener("touchend", handleTalkEnd);
+
+// PC
+talk.addEventListener("mousedown", handleTalkStart);
+talk.addEventListener("mouseup", handleTalkEnd);
 
 // ===== 固定送信 =====
 lockBtn.addEventListener("click", async () => {
