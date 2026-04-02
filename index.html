@@ -28,6 +28,9 @@ button { font-size:20px; padding:20px; }
 
 <button id="talk">🎤 話す</button>
 
+<!-- 🎤 マイク確認メーター -->
+<canvas id="meter" width="300" height="50" style="border:1px solid #333;"></canvas>
+
 <div id="log"></div>
 
 <script>
@@ -36,6 +39,37 @@ button { font-size:20px; padding:20px; }
 function log(msg){
     console.log(msg);
     document.getElementById("log").innerHTML += msg + "<br>";
+}
+
+// ===== マイクメーター =====
+function startMicMonitor(stream){
+
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const analyser = audioContext.createAnalyser();
+
+    const mic = audioContext.createMediaStreamSource(stream);
+    mic.connect(analyser);
+
+    analyser.fftSize = 256;
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    const canvas = document.getElementById("meter");
+    const ctx = canvas.getContext("2d");
+
+    function draw(){
+        requestAnimationFrame(draw);
+
+        analyser.getByteFrequencyData(dataArray);
+
+        let volume = dataArray.reduce((a,b)=>a+b) / dataArray.length;
+
+        ctx.clearRect(0,0,300,50);
+
+        ctx.fillStyle = volume > 50 ? "red" : "lime";
+        ctx.fillRect(0,0,volume*2,50);
+    }
+
+    draw();
 }
 
 // ===== 状態 =====
@@ -55,16 +89,20 @@ document.body.addEventListener("click", async () => {
 
     log("初期化開始");
 
-    // マイク
+    // ===== マイク =====
     try{
         localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
         localStream.getAudioTracks()[0].enabled = false;
+
+        // 🎤 メーター開始
+        startMicMonitor(localStream);
+
         log("マイクOK");
     }catch{
         log("マイクNG");
     }
 
-    // Peer
+    // ===== Peer =====
     peer = new Peer({
         config: {
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
@@ -80,12 +118,14 @@ document.body.addEventListener("click", async () => {
         }));
     });
 
-    // 着信
+    // ===== 着信 =====
     peer.on("call", call => {
 
         call.answer(localStream);
 
         call.on("stream", stream => {
+
+            log("音声受信");
 
             let audio = new Audio();
             audio.srcObject = stream;
@@ -118,9 +158,13 @@ socket.onmessage = msg => {
 
             if(peer && id !== peer.id && !connectedPeers[id]){
 
+                log("接続: " + id);
+
                 let call = peer.call(id, localStream);
 
                 call.on("stream", stream => {
+
+                    log("音声受信（発信側）");
 
                     let audio = new Audio();
                     audio.srcObject = stream;
