@@ -97,6 +97,11 @@ document.body.addEventListener("click", async () => {
         localStream.getAudioTracks()[0].enabled = false;
 
         startMicMonitor(localStream);
+        let testAudio = new Audio();
+testAudio.srcObject = localStream;
+testAudio.muted = false;
+testAudio.play();
+
 
         log("マイクOK");
     }catch{
