@@ -8,7 +8,7 @@
 
 <style>
 body { user-select:none; }
-button { font-size:20px; padding:20px; }
+button { font-size:20px; padding:20px; margin-right:10px; }
 #log {
   background:#000;
   color:#0f0;
@@ -27,8 +27,9 @@ button { font-size:20px; padding:20px; }
 <p>話者: <span id="speaker">なし</span></p>
 
 <button id="talk">🎤 話す</button>
+<button id="lockTalk">🔒 固定OFF</button>
 
-<!-- 🎤 マイク確認メーター -->
+<!-- マイク確認メーター -->
 <canvas id="meter" width="300" height="50" style="border:1px solid #333;"></canvas>
 
 <div id="log"></div>
@@ -80,8 +81,9 @@ let myId = null;
 let currentSpeaker = null;
 let connectedPeers = {};
 let userInteracted = false;
+let talkLocked = false;
 
-// ===== Safari対策（クリック後初期化） =====
+// ===== Safari対策 =====
 document.body.addEventListener("click", async () => {
 
     if(userInteracted) return;
@@ -89,12 +91,11 @@ document.body.addEventListener("click", async () => {
 
     log("初期化開始");
 
-    // ===== マイク =====
+    // マイク
     try{
         localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
         localStream.getAudioTracks()[0].enabled = false;
 
-        // 🎤 メーター開始
         startMicMonitor(localStream);
 
         log("マイクOK");
@@ -102,7 +103,7 @@ document.body.addEventListener("click", async () => {
         log("マイクNG");
     }
 
-    // ===== Peer =====
+    // Peer
     peer = new Peer({
         config: {
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
@@ -118,7 +119,7 @@ document.body.addEventListener("click", async () => {
         }));
     });
 
-    // ===== 着信 =====
+    // 着信
     peer.on("call", call => {
 
         call.answer(localStream);
@@ -195,12 +196,13 @@ socket.onmessage = msg => {
 setInterval(() => {
     if(localStream){
         localStream.getAudioTracks()[0].enabled =
-            (currentSpeaker === myId);
+            (currentSpeaker === myId || talkLocked);
     }
 }, 100);
 
 // ===== ボタン =====
 let talk = document.getElementById("talk");
+let lockBtn = document.getElementById("lockTalk");
 
 function requestTalk(){
     socket.send(JSON.stringify({ type:"requestTalk" }));
@@ -223,6 +225,28 @@ talk.addEventListener("touchend", e=>{
 // PC
 talk.addEventListener("mousedown", requestTalk);
 talk.addEventListener("mouseup", stopTalk);
+
+// ===== 固定送信ボタン =====
+lockBtn.addEventListener("click", () => {
+
+    talkLocked = !talkLocked;
+
+    if(talkLocked){
+        lockBtn.textContent = "🔓 固定ON";
+        lockBtn.style.background = "red";
+
+        socket.send(JSON.stringify({ type:"requestTalk" }));
+
+        log("固定送信ON");
+    }else{
+        lockBtn.textContent = "🔒 固定OFF";
+        lockBtn.style.background = "";
+
+        socket.send(JSON.stringify({ type:"stopTalk" }));
+
+        log("固定送信OFF");
+    }
+});
 
 </script>
 
