@@ -92,6 +92,7 @@ let talkLocked = false;
 let initialized = false;
 
 let audioElement;
+let pendingUsers = []; // ★ 追加
 
 // ===== 初期化 =====
 async function init(){
@@ -113,13 +114,13 @@ async function init(){
         log("マイクNG: " + e.message);
     }
 
-    // audio作成
+    // audio
     audioElement = new Audio();
     audioElement.setAttribute("playsinline", true);
     audioElement.muted = false;
     audioElement.autoplay = true;
 
-    // ===== Peer（重要修正）=====
+    // ===== Peer =====
     peer = new Peer({
         host: "0.peerjs.com",
         port: 443,
@@ -138,9 +139,14 @@ async function init(){
             type:"join",
             id
         }));
+
+        // ★ ここが重要（後から接続）
+        if(pendingUsers.length > 0){
+            connectUsers(pendingUsers);
+            pendingUsers = [];
+        }
     });
 
-    // エラー確認
     peer.on("error", err => {
         log("Peerエラー: " + err);
     });
@@ -157,11 +163,32 @@ async function init(){
             log("音声受信");
 
             audioElement.srcObject = stream;
-
-            audioElement.play().catch(e=>{
-                log("再生失敗: " + e.message);
-            });
+            audioElement.play().catch(()=>{});
         });
+    });
+}
+
+// ===== 接続関数 =====
+function connectUsers(users){
+
+    users.forEach(id => {
+
+        if(id !== peer.id && !connectedPeers[id]){
+
+            log("発信開始: " + id);
+
+            let call = peer.call(id, localStream);
+
+            call.on("stream", stream => {
+
+                log("音声受信（発信側）");
+
+                audioElement.srcObject = stream;
+                audioElement.play().catch(()=>{});
+            });
+
+            connectedPeers[id] = true;
+        }
     });
 }
 
@@ -181,28 +208,13 @@ socket.onmessage = msg => {
 
     if(data.type === "userList"){
 
-        data.users.forEach(id => {
+        // ★ Peer未準備なら保留
+        if(!peer || !peer.id){
+            pendingUsers = data.users;
+            return;
+        }
 
-            if(peer && id !== peer.id && !connectedPeers[id]){
-
-                log("発信開始: " + id);
-
-                let call = peer.call(id, localStream);
-
-                call.on("stream", stream => {
-
-                    log("音声受信（発信側）");
-
-                    audioElement.srcObject = stream;
-
-                    audioElement.play().catch(e=>{
-                        log("再生失敗: " + e.message);
-                    });
-                });
-
-                connectedPeers[id] = true;
-            }
-        });
+        connectUsers(data.users);
     }
 
     if(data.type === "speaker"){
