@@ -119,10 +119,15 @@ async function init(){
     audioElement.muted = false;
     audioElement.autoplay = true;
 
-    // Peer
+    // ===== Peer（重要修正）=====
     peer = new Peer({
+        host: "0.peerjs.com",
+        port: 443,
+        secure: true,
         config: {
-            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+            iceServers: [
+                { urls: "stun:stun.l.google.com:19302" }
+            ]
         }
     });
 
@@ -135,8 +140,15 @@ async function init(){
         }));
     });
 
+    // エラー確認
+    peer.on("error", err => {
+        log("Peerエラー: " + err);
+    });
+
     // ===== 着信 =====
     peer.on("call", call => {
+
+        log("着信あり");
 
         call.answer(localStream);
 
@@ -146,7 +158,6 @@ async function init(){
 
             audioElement.srcObject = stream;
 
-            // ★ 重要：ここで再生
             audioElement.play().catch(e=>{
                 log("再生失敗: " + e.message);
             });
@@ -174,7 +185,7 @@ socket.onmessage = msg => {
 
             if(peer && id !== peer.id && !connectedPeers[id]){
 
-                log("接続: " + id);
+                log("発信開始: " + id);
 
                 let call = peer.call(id, localStream);
 
@@ -184,7 +195,6 @@ socket.onmessage = msg => {
 
                     audioElement.srcObject = stream;
 
-                    // ★ 重要：ここで再生
                     audioElement.play().catch(e=>{
                         log("再生失敗: " + e.message);
                     });
@@ -227,7 +237,6 @@ async function handleTalkStart(e){
         await init();
     }
 
-    // 再生許可（ここ重要）
     audioElement.play().catch(()=>{});
 
     socket.send(JSON.stringify({ type:"requestTalk" }));
@@ -242,7 +251,7 @@ function handleTalkEnd(e){
     }));
 }
 
-// pointerで統一（最重要）
+// pointerで統一
 talk.addEventListener("pointerdown", handleTalkStart);
 talk.addEventListener("pointerup", handleTalkEnd);
 
