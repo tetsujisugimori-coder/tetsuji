@@ -77,10 +77,9 @@ let connectedPeers = {};
 let talkLocked = false;
 let initialized = false;
 
-// ★ iPhone対策 audio
 let audioElement;
 
-// ===== 初期化関数（PC + iPhone対応） =====
+// ===== 初期化 =====
 async function init(){
 
     if(initialized) return;
@@ -88,7 +87,7 @@ async function init(){
 
     log("初期化開始");
 
-    // ===== ① マイク（先にやる） =====
+    // マイク
     try{
         localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
         localStream.getAudioTracks()[0].enabled = false;
@@ -96,18 +95,16 @@ async function init(){
         startMicMonitor(localStream);
 
         log("マイクOK");
-    }catch{
-        log("マイクNG");
+    }catch(e){
+        log("マイクNG: " + e.message);
     }
 
-    // ===== ② audio（後にやる） =====
+    // audio（ここでは作るだけ）
     audioElement = new Audio();
     audioElement.setAttribute("playsinline", true);
     audioElement.muted = false;
 
-    await audioElement.play().catch(()=>{});
-
-    // ===== ③ Peer =====
+    // Peer
     peer = new Peer({
         config: {
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
@@ -123,7 +120,7 @@ async function init(){
         }));
     });
 
-    // ===== 着信 =====
+    // 着信
     peer.on("call", call => {
 
         call.answer(localStream);
@@ -132,17 +129,10 @@ async function init(){
 
             log("音声受信");
 
-            // ★ 差し替え（重要）
             audioElement.srcObject = stream;
         });
     });
 }
-
-// ===== 初期化イベント =====
-// iPhone
-document.body.addEventListener("touchstart", init);
-// PC
-document.body.addEventListener("click", init);
 
 // ===== WebSocket =====
 socket.onopen = () => log("WS接続OK");
@@ -172,7 +162,6 @@ socket.onmessage = msg => {
 
                     log("音声受信（発信側）");
 
-                    // ★ 差し替え
                     audioElement.srcObject = stream;
                 });
 
@@ -205,33 +194,42 @@ setInterval(() => {
 let talk = document.getElementById("talk");
 let lockBtn = document.getElementById("lockTalk");
 
-function requestTalk(){
+// ★ 最重要：ここで再生を許可する
+talk.addEventListener("click", async () => {
+
+    // 初期化
+    await init();
+
+    // audio再生許可
+    try{
+        await audioElement.play();
+        log("audio再生成功");
+    }catch(e){
+        log("audio再生失敗: " + e.message);
+    }
+
+    // 発言要求
     socket.send(JSON.stringify({ type:"requestTalk" }));
-}
-
-function stopTalk(){
-    socket.send(JSON.stringify({
-        type:"stopTalk",
-        id: myId
-    }));
-}
-
-// スマホ
-talk.addEventListener("touchstart", e=>{
-    e.preventDefault();
-    requestTalk();
 });
+
+// 離したとき
+talk.addEventListener("mouseup", () => {
+    socket.send(JSON.stringify({ type:"stopTalk", id: myId }));
+});
+
 talk.addEventListener("touchend", e=>{
     e.preventDefault();
-    stopTalk();
+    socket.send(JSON.stringify({ type:"stopTalk", id: myId }));
 });
 
-// PC
-talk.addEventListener("mousedown", requestTalk);
-talk.addEventListener("mouseup", stopTalk);
-
 // ===== 固定送信 =====
-lockBtn.addEventListener("click", () => {
+lockBtn.addEventListener("click", async () => {
+
+    await init();
+
+    try{
+        await audioElement.play();
+    }catch{}
 
     talkLocked = !talkLocked;
 
@@ -240,7 +238,7 @@ lockBtn.addEventListener("click", () => {
         lockBtn.textContent = "🔓 固定ON";
         lockBtn.style.background = "red";
 
-        requestTalk();
+        socket.send(JSON.stringify({ type:"requestTalk" }));
 
         log("固定送信ON");
 
@@ -249,7 +247,10 @@ lockBtn.addEventListener("click", () => {
         lockBtn.textContent = "🔒 固定OFF";
         lockBtn.style.background = "";
 
-        stopTalk();
+        socket.send(JSON.stringify({
+            type:"stopTalk",
+            id: myId
+        }));
 
         log("固定送信OFF");
     }
