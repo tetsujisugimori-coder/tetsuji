@@ -1,16 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+<style>
+body { user-select:none; }
+button { font-size:20px; padding:20px; }
+#log {
+  background:#000;
+  color:#0f0;
+  font-size:12px;
+  height:150px;
+  overflow:auto;
+}
+</style>
+</head>
+
+<body>
+
+<h2>業務用インカム</h2>
+
+<p>自分: <span id="myId"></span></p>
+<p>話者: <span id="speaker">なし</span></p>
+
+<button id="talk">🎤 話す</button>
+
+<div id="log"></div>
+
 <script>
 
-// ===== WebSocket =====
-let socket = new WebSocket("wss://あなたのサーバーURL");
+// ===== ログ =====
+function log(msg){
+    console.log(msg);
+    document.getElementById("log").innerHTML += msg + "<br>";
+}
 
 // ===== 状態 =====
-let currentSpeaker = null;
+let socket = new WebSocket("wss://peerjs-server-etm4.onrender.com");
+let peer;
+let localStream;
 let myId = null;
+let currentSpeaker = null;
+let connectedPeers = {};
+let userInteracted = false;
 
-// ===== 接続 =====
+// ===== Safari対策（クリック後初期化） =====
+document.body.addEventListener("click", async () => {
+
+    if(userInteracted) return;
+    userInteracted = true;
+
+    log("初期化開始");
+
+    // マイク
+    try{
+        localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+        localStream.getAudioTracks()[0].enabled = false;
+        log("マイクOK");
+    }catch{
+        log("マイクNG");
+    }
+
+    // Peer
+    peer = new Peer({
+        config: {
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        }
+    });
+
+    peer.on("open", id => {
+        log("PeerID: " + id);
+
+        socket.send(JSON.stringify({
+            type:"join",
+            id
+        }));
+    });
+
+    // 着信
+    peer.on("call", call => {
+
+        call.answer(localStream);
+
+        call.on("stream", stream => {
+
+            let audio = new Audio();
+            audio.srcObject = stream;
+            audio.autoplay = true;
+            audio.setAttribute("playsinline", true);
+
+            audio.play().catch(()=>{});
+        });
+    });
+
+});
+
+// ===== WebSocket =====
 socket.onopen = () => log("WS接続OK");
-
-socket.onerror = () => log("WSエラー");
 
 socket.onmessage = msg => {
 
@@ -18,74 +107,71 @@ socket.onmessage = msg => {
 
     log("WS: " + data.type);
 
-    // 自分のID
-    if (data.type === "yourId") {
+    if(data.type === "yourId"){
         myId = data.id;
         document.getElementById("myId").textContent = myId;
     }
 
-    // 話者更新
-    if (data.type === "speaker") {
+    if(data.type === "userList"){
+
+        data.users.forEach(id => {
+
+            if(peer && id !== peer.id && !connectedPeers[id]){
+
+                let call = peer.call(id, localStream);
+
+                call.on("stream", stream => {
+
+                    let audio = new Audio();
+                    audio.srcObject = stream;
+                    audio.autoplay = true;
+                    audio.setAttribute("playsinline", true);
+
+                    audio.play().catch(()=>{});
+                });
+
+                connectedPeers[id] = true;
+            }
+        });
+    }
+
+    if(data.type === "speaker"){
         currentSpeaker = data.id;
 
         document.getElementById("speaker").textContent =
             currentSpeaker ? currentSpeaker : "なし";
     }
 
-    // 👇 ここに追加
     if(data.type === "busy"){
         log("他の人が話しています");
-
-    // キュー（任意）
-    
     }
 };
 
-// ===== マイク =====
-navigator.mediaDevices.getUserMedia({ audio: true })
-.then(stream => {
-    localStream = stream;
-    stream.getAudioTracks()[0].enabled = false;
-    log("マイクOK");
-})
-.catch(() => log("マイクNG"));
-
 // ===== 発言制御 =====
 setInterval(() => {
-
-    if (localStream) {
+    if(localStream){
         localStream.getAudioTracks()[0].enabled =
             (currentSpeaker === myId);
     }
-
 }, 100);
 
-// ===== ボタン（PC + スマホ対応） =====
+// ===== ボタン =====
 let talk = document.getElementById("talk");
 
-function requestTalk() {
-    if (socket.readyState !== 1) return;
-
-    socket.send(JSON.stringify({
-        type: "requestTalk"
-    }));
+function requestTalk(){
+    socket.send(JSON.stringify({ type:"requestTalk" }));
 }
 
-function stopTalk() {
-    if (socket.readyState !== 1) return;
-
-    socket.send(JSON.stringify({
-        type: "stopTalk"
-    }));
+function stopTalk(){
+    socket.send(JSON.stringify({ type:"stopTalk" }));
 }
 
 // スマホ
-talk.addEventListener("touchstart", e => {
+talk.addEventListener("touchstart", e=>{
     e.preventDefault();
     requestTalk();
 });
-
-talk.addEventListener("touchend", e => {
+talk.addEventListener("touchend", e=>{
     e.preventDefault();
     stopTalk();
 });
@@ -95,3 +181,6 @@ talk.addEventListener("mousedown", requestTalk);
 talk.addEventListener("mouseup", stopTalk);
 
 </script>
+
+</body>
+</html>
