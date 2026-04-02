@@ -140,9 +140,7 @@ async function init(){
         call.answer(localStream);
 
         call.on("stream", stream => {
-
             log("音声受信");
-
             audioElement.srcObject = stream;
         });
     });
@@ -173,9 +171,7 @@ socket.onmessage = msg => {
                 let call = peer.call(id, localStream);
 
                 call.on("stream", stream => {
-
                     log("音声受信（発信側）");
-
                     audioElement.srcObject = stream;
                 });
 
@@ -208,18 +204,16 @@ setInterval(() => {
 let talk = document.getElementById("talk");
 let lockBtn = document.getElementById("lockTalk");
 
-// ===== 話すボタン =====
+// ===== 話す =====
 async function handleTalkStart(e){
     e.preventDefault();
 
-    await init();
-
-    try{
-        await audioElement.play();
-        log("audio再生成功");
-    }catch(err){
-        log("audio再生失敗: " + err.message);
+    if(!initialized){
+        await init();
     }
+
+    // 再生許可（awaitしないのがポイント）
+    audioElement.play().catch(()=>{});
 
     socket.send(JSON.stringify({ type:"requestTalk" }));
 }
@@ -233,22 +227,18 @@ function handleTalkEnd(e){
     }));
 }
 
-// スマホ
-talk.addEventListener("touchstart", handleTalkStart);
-talk.addEventListener("touchend", handleTalkEnd);
-
-// PC
-talk.addEventListener("mousedown", handleTalkStart);
-talk.addEventListener("mouseup", handleTalkEnd);
+// ★ pointerで統一（最重要）
+talk.addEventListener("pointerdown", handleTalkStart);
+talk.addEventListener("pointerup", handleTalkEnd);
 
 // ===== 固定送信 =====
 lockBtn.addEventListener("click", async () => {
 
-    await init();
+    if(!initialized){
+        await init();
+    }
 
-    try{
-        await audioElement.play();
-    }catch{}
+    audioElement.play().catch(()=>{});
 
     talkLocked = !talkLocked;
 
