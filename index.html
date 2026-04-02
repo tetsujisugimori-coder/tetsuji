@@ -117,6 +117,7 @@ async function init(){
     audioElement = new Audio();
     audioElement.setAttribute("playsinline", true);
     audioElement.muted = false;
+    audioElement.autoplay = true;
 
     // Peer
     peer = new Peer({
@@ -134,14 +135,21 @@ async function init(){
         }));
     });
 
-    // 着信
+    // ===== 着信 =====
     peer.on("call", call => {
 
         call.answer(localStream);
 
         call.on("stream", stream => {
+
             log("音声受信");
+
             audioElement.srcObject = stream;
+
+            // ★ 重要：ここで再生
+            audioElement.play().catch(e=>{
+                log("再生失敗: " + e.message);
+            });
         });
     });
 }
@@ -171,8 +179,15 @@ socket.onmessage = msg => {
                 let call = peer.call(id, localStream);
 
                 call.on("stream", stream => {
+
                     log("音声受信（発信側）");
+
                     audioElement.srcObject = stream;
+
+                    // ★ 重要：ここで再生
+                    audioElement.play().catch(e=>{
+                        log("再生失敗: " + e.message);
+                    });
                 });
 
                 connectedPeers[id] = true;
@@ -212,7 +227,7 @@ async function handleTalkStart(e){
         await init();
     }
 
-    // 再生許可（awaitしないのがポイント）
+    // 再生許可（ここ重要）
     audioElement.play().catch(()=>{});
 
     socket.send(JSON.stringify({ type:"requestTalk" }));
@@ -227,7 +242,7 @@ function handleTalkEnd(e){
     }));
 }
 
-// ★ pointerで統一（最重要）
+// pointerで統一（最重要）
 talk.addEventListener("pointerdown", handleTalkStart);
 talk.addEventListener("pointerup", handleTalkEnd);
 
