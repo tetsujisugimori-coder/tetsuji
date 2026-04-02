@@ -75,27 +75,20 @@ let myId = null;
 let currentSpeaker = null;
 let connectedPeers = {};
 let talkLocked = false;
-let userInteracted = false;
+let initialized = false;
 
-// ★ iPhone対策用 audio（1個だけ使い回す）
+// ★ iPhone対策 audio
 let audioElement;
 
-// ===== 初期化（クリック必須） =====
-document.body.addEventListener("click", async () => {
+// ===== 初期化関数（PC + iPhone対応） =====
+async function init(){
 
-    if(userInteracted) return;
-    userInteracted = true;
+    if(initialized) return;
+    initialized = true;
 
     log("初期化開始");
 
-    // ===== audio先に作る（iPhone対策） =====
-    audioElement = new Audio();
-    audioElement.setAttribute("playsinline", true);
-    audioElement.muted = false;
-
-    await audioElement.play().catch(()=>{});
-
-    // ===== マイク =====
+    // ===== ① マイク（先にやる） =====
     try{
         localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
         localStream.getAudioTracks()[0].enabled = false;
@@ -107,7 +100,14 @@ document.body.addEventListener("click", async () => {
         log("マイクNG");
     }
 
-    // ===== Peer =====
+    // ===== ② audio（後にやる） =====
+    audioElement = new Audio();
+    audioElement.setAttribute("playsinline", true);
+    audioElement.muted = false;
+
+    await audioElement.play().catch(()=>{});
+
+    // ===== ③ Peer =====
     peer = new Peer({
         config: {
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
@@ -132,12 +132,17 @@ document.body.addEventListener("click", async () => {
 
             log("音声受信");
 
-            // ★ ここが超重要（差し替え）
+            // ★ 差し替え（重要）
             audioElement.srcObject = stream;
         });
     });
+}
 
-});
+// ===== 初期化イベント =====
+// iPhone
+document.body.addEventListener("touchstart", init);
+// PC
+document.body.addEventListener("click", init);
 
 // ===== WebSocket =====
 socket.onopen = () => log("WS接続OK");
@@ -167,7 +172,7 @@ socket.onmessage = msg => {
 
                     log("音声受信（発信側）");
 
-                    // ★ ここも差し替え
+                    // ★ 差し替え
                     audioElement.srcObject = stream;
                 });
 
@@ -204,7 +209,6 @@ function requestTalk(){
     socket.send(JSON.stringify({ type:"requestTalk" }));
 }
 
-// ★ 修正：確実停止
 function stopTalk(){
     socket.send(JSON.stringify({
         type:"stopTalk",
