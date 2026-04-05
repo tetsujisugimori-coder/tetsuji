@@ -11,23 +11,17 @@ body {
   user-select:none;
   -webkit-user-select:none;
 }
-
 button {
   font-size:20px;
   padding:20px;
   margin-right:10px;
-
-  -webkit-user-select:none;
-  user-select:none;
-  -webkit-touch-callout:none;
   touch-action:manipulation;
 }
-
 #log {
   background:#000;
   color:#0f0;
   font-size:12px;
-  height:150px;
+  height:200px;
   overflow:auto;
 }
 </style>
@@ -35,7 +29,7 @@ button {
 
 <body>
 
-<h2>業務用インカム</h2>
+<h2>インカム（デバッグ版）</h2>
 
 <p>自分: <span id="myId"></span></p>
 <p>話者: <span id="speaker">なし</span></p>
@@ -102,10 +96,11 @@ async function init(){
 
     log("初期化開始");
 
-    // マイク
     try{
         localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
-        localStream.getAudioTracks()[0].enabled = false;
+
+        // ★ デバッグ用：常時ON
+        localStream.getAudioTracks()[0].enabled = true;
 
         startMicMonitor(localStream);
 
@@ -114,18 +109,22 @@ async function init(){
         log("マイクNG: " + e.message);
     }
 
-    // audio
     audioElement = new Audio();
     audioElement.setAttribute("playsinline", true);
-    audioElement.muted = false;
     audioElement.autoplay = true;
 }
 
-// ===== Peer作成（TURN有効）=====
+// ===== Peer作成（デバッグ強化）=====
 function createPeer(){
 
-    // ★ ここが今回の最重要修正
-    peer = new Peer(myId);
+    peer = new Peer(myId, {
+        config: {
+            iceServers: [
+                { urls: "stun:stun.l.google.com:19302" },
+                { urls: "stun:global.stun.twilio.com:3478" }
+            ]
+        }
+    });
 
     peer.on("open", id => {
         log("PeerID: " + id);
@@ -146,19 +145,33 @@ function createPeer(){
 
         call.answer(localStream);
 
-        call.on("stream", stream => {
+        attachCallEvents(call);
+    });
+}
 
-            log("音声受信");
+// ===== Callイベントまとめ =====
+function attachCallEvents(call){
 
-            audioElement.srcObject = stream;
-            audioElement.play().catch(e=>{
-                log("再生失敗: " + e.message);
-            });
+    call.on("stream", stream => {
+        log("音声受信");
+
+        audioElement.srcObject = stream;
+        audioElement.play().catch(e=>{
+            log("再生失敗: " + e.message);
         });
+    });
 
-        call.on("error", e=>{
-            log("callエラー: " + e);
-        });
+    call.on("close", () => {
+        log("通話終了");
+    });
+
+    call.on("error", err => {
+        log("通話エラー: " + err);
+    });
+
+    // ★ ICE状態（超重要）
+    call.peerConnection?.addEventListener("iceconnectionstatechange", () => {
+        log("ICE状態: " + call.peerConnection.iceConnectionState);
     });
 }
 
@@ -173,19 +186,7 @@ function connectUsers(users){
 
             let call = peer.call(id, localStream);
 
-            call.on("stream", stream => {
-
-                log("音声受信（発信側）");
-
-                audioElement.srcObject = stream;
-                audioElement.play().catch(e=>{
-                    log("再生失敗: " + e.message);
-                });
-            });
-
-            call.on("error", e=>{
-                log("callエラー: " + e);
-            });
+            attachCallEvents(call);
 
             connectedPeers[id] = true;
         }
@@ -205,7 +206,7 @@ socket.onmessage = msg => {
         myId = data.id;
         document.getElementById("myId").textContent = myId;
 
-        createPeer(); // ★ ID確定後に作成
+        createPeer();
     }
 
     if(data.type === "userList"){
@@ -230,20 +231,11 @@ socket.onmessage = msg => {
     }
 };
 
-// ===== 発言制御 =====
-setInterval(() => {
-    if(localStream){
-        localStream.getAudioTracks()[0].enabled =
-            (currentSpeaker === myId || talkLocked);
-    }
-}, 100);
-
 // ===== ボタン =====
 let talk = document.getElementById("talk");
 let lockBtn = document.getElementById("lockTalk");
 
-// ===== 話す =====
-async function handleTalkStart(e){
+async function handleStart(e){
     e.preventDefault();
 
     if(!initialized){
@@ -255,7 +247,7 @@ async function handleTalkStart(e){
     socket.send(JSON.stringify({ type:"requestTalk" }));
 }
 
-function handleTalkEnd(e){
+function handleEnd(e){
     e.preventDefault();
 
     socket.send(JSON.stringify({
@@ -264,41 +256,24 @@ function handleTalkEnd(e){
     }));
 }
 
-// pointer対応（最重要）
-talk.addEventListener("pointerdown", handleTalkStart);
-talk.addEventListener("pointerup", handleTalkEnd);
+talk.addEventListener("pointerdown", handleStart);
+talk.addEventListener("pointerup", handleEnd);
 
-// ===== 固定送信 =====
-lockBtn.addEventListener("click", async () => {
+// 固定
+lockBtn.addEventListener("click", async ()=>{
 
     if(!initialized){
         await init();
     }
 
-    audioElement.play().catch(()=>{});
-
     talkLocked = !talkLocked;
 
     if(talkLocked){
-
         lockBtn.textContent = "🔓 固定ON";
-        lockBtn.style.background = "red";
-
         socket.send(JSON.stringify({ type:"requestTalk" }));
-
-        log("固定送信ON");
-
     }else{
-
         lockBtn.textContent = "🔒 固定OFF";
-        lockBtn.style.background = "";
-
-        socket.send(JSON.stringify({
-            type:"stopTalk",
-            id: myId
-        }));
-
-        log("固定送信OFF");
+        socket.send(JSON.stringify({ type:"stopTalk", id: myId }));
     }
 });
 
