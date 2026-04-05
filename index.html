@@ -92,7 +92,7 @@ let talkLocked = false;
 let initialized = false;
 
 let audioElement;
-let pendingUsers = []; // ★ 追加
+let pendingUsers = [];
 
 // ===== 初期化 =====
 async function init(){
@@ -119,9 +119,12 @@ async function init(){
     audioElement.setAttribute("playsinline", true);
     audioElement.muted = false;
     audioElement.autoplay = true;
+}
 
-    // ===== Peer =====
-    peer = new Peer({
+// ===== Peer作成（ID一致）=====
+function createPeer(){
+
+    peer = new Peer(myId, {
         host: "0.peerjs.com",
         port: 443,
         secure: true,
@@ -135,12 +138,6 @@ async function init(){
     peer.on("open", id => {
         log("PeerID: " + id);
 
-        socket.send(JSON.stringify({
-            type:"join",
-            id
-        }));
-
-        // ★ ここが重要（後から接続）
         if(pendingUsers.length > 0){
             connectUsers(pendingUsers);
             pendingUsers = [];
@@ -151,7 +148,6 @@ async function init(){
         log("Peerエラー: " + err);
     });
 
-    // ===== 着信 =====
     peer.on("call", call => {
 
         log("着信あり");
@@ -168,12 +164,12 @@ async function init(){
     });
 }
 
-// ===== 接続関数 =====
+// ===== 接続 =====
 function connectUsers(users){
 
     users.forEach(id => {
 
-        if(id !== peer.id && !connectedPeers[id]){
+        if(id !== myId && !connectedPeers[id]){
 
             log("発信開始: " + id);
 
@@ -204,11 +200,13 @@ socket.onmessage = msg => {
     if(data.type === "yourId"){
         myId = data.id;
         document.getElementById("myId").textContent = myId;
+
+        // ★ここでPeer作成（最重要）
+        createPeer();
     }
 
     if(data.type === "userList"){
 
-        // ★ Peer未準備なら保留
         if(!peer || !peer.id){
             pendingUsers = data.users;
             return;
@@ -263,7 +261,7 @@ function handleTalkEnd(e){
     }));
 }
 
-// pointerで統一
+// pointer対応（PC+iPhone）
 talk.addEventListener("pointerdown", handleTalkStart);
 talk.addEventListener("pointerup", handleTalkEnd);
 
