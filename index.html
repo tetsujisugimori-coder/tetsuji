@@ -121,19 +121,11 @@ async function init(){
     audioElement.autoplay = true;
 }
 
-// ===== Peer作成（ID一致）=====
+// ===== Peer作成（TURN有効）=====
 function createPeer(){
 
-    peer = new Peer(myId, {
-        host: "0.peerjs.com",
-        port: 443,
-        secure: true,
-        config: {
-            iceServers: [
-                { urls: "stun:stun.l.google.com:19302" }
-            ]
-        }
-    });
+    // ★ ここが今回の最重要修正
+    peer = new Peer(myId);
 
     peer.on("open", id => {
         log("PeerID: " + id);
@@ -159,7 +151,13 @@ function createPeer(){
             log("音声受信");
 
             audioElement.srcObject = stream;
-            audioElement.play().catch(()=>{});
+            audioElement.play().catch(e=>{
+                log("再生失敗: " + e.message);
+            });
+        });
+
+        call.on("error", e=>{
+            log("callエラー: " + e);
         });
     });
 }
@@ -180,7 +178,13 @@ function connectUsers(users){
                 log("音声受信（発信側）");
 
                 audioElement.srcObject = stream;
-                audioElement.play().catch(()=>{});
+                audioElement.play().catch(e=>{
+                    log("再生失敗: " + e.message);
+                });
+            });
+
+            call.on("error", e=>{
+                log("callエラー: " + e);
             });
 
             connectedPeers[id] = true;
@@ -201,8 +205,7 @@ socket.onmessage = msg => {
         myId = data.id;
         document.getElementById("myId").textContent = myId;
 
-        // ★ここでPeer作成（最重要）
-        createPeer();
+        createPeer(); // ★ ID確定後に作成
     }
 
     if(data.type === "userList"){
@@ -261,7 +264,7 @@ function handleTalkEnd(e){
     }));
 }
 
-// pointer対応（PC+iPhone）
+// pointer対応（最重要）
 talk.addEventListener("pointerdown", handleTalkStart);
 talk.addEventListener("pointerup", handleTalkEnd);
 
