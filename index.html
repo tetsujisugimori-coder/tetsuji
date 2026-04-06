@@ -26,7 +26,7 @@ button {
 
 <body>
 
-<h2>インカム（最終版）</h2>
+<h2>インカム（本番版）</h2>
 
 <p>自分: <span id="myId"></span></p>
 <p>話者: <span id="speaker">なし</span></p>
@@ -81,9 +81,10 @@ let currentSpeaker = null;
 let connectedPeers = {};
 let peerReady = false;
 let initialized = false;
-
-let audioElement;
 let latestUserList = [];
+let audioMap = {}; // ★ 複数音声管理
+
+let talkLocked = false;
 
 // ===== 初期化 =====
 async function init(){
@@ -94,8 +95,16 @@ async function init(){
     log("初期化開始");
 
     try{
-        localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
-        localStream.getAudioTracks()[0].enabled = true; // デバッグ中は常時ON
+        localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+
+        // ★ 初期はOFF（話者のみON）
+        localStream.getAudioTracks()[0].enabled = false;
 
         startMicMonitor(localStream);
 
@@ -103,10 +112,6 @@ async function init(){
     }catch(e){
         log("マイクNG: " + e.message);
     }
-
-    audioElement = new Audio();
-    audioElement.setAttribute("playsinline", true);
-    audioElement.autoplay = true;
 }
 
 // ===== Peer作成 =====
@@ -116,56 +121,62 @@ function createPeer(){
 
     peer.on("open", id => {
         log("PeerID: " + id);
-
         peerReady = true;
 
-        // ★ 少し待ってから接続
         setTimeout(()=>{
             connectUsers(latestUserList);
         }, 1000);
     });
 
-    peer.on("error", err => {
-        log("Peerエラー: " + err);
-    });
+    peer.on("error", err => log("Peerエラー: " + err));
 
     peer.on("call", call => {
-
-        log("着信あり");
+        log("着信: " + call.peer);
 
         call.answer(localStream);
-
         attachCallEvents(call);
     });
 }
 
-// ===== Callイベント =====
+// ===== Call処理 =====
 function attachCallEvents(call){
 
     call.on("stream", stream => {
-        log("音声受信");
 
-        audioElement.srcObject = stream;
-        audioElement.play().catch(e=>{
-            log("再生失敗: " + e.message);
-        });
+        // ★ 自分の音は再生しない
+        if(call.peer === myId){
+            log("自分の音スキップ");
+            return;
+        }
+
+        log("音声受信: " + call.peer);
+
+        let audio = new Audio();
+        audio.srcObject = stream;
+        audio.autoplay = true;
+        audio.setAttribute("playsinline", true);
+
+        audio.play().catch(()=>{});
+
+        audioMap[call.peer] = audio;
     });
 
-    call.on("close", () => log("通話終了"));
+    call.on("close", ()=>{
+        log("通話終了: " + call.peer);
+
+        if(audioMap[call.peer]){
+            audioMap[call.peer].remove();
+            delete audioMap[call.peer];
+        }
+    });
+
     call.on("error", err => log("通話エラー: " + err));
-
-    call.peerConnection?.addEventListener("iceconnectionstatechange", () => {
-        log("ICE状態: " + call.peerConnection.iceConnectionState);
-    });
 }
 
 // ===== 接続 =====
 function connectUsers(users){
 
-    if(!peerReady){
-        log("Peer未準備スキップ");
-        return;
-    }
+    if(!peerReady) return;
 
     users.forEach(id => {
 
@@ -182,9 +193,9 @@ function connectUsers(users){
     });
 }
 
-// ===== 再接続ループ（重要）=====
+// ===== 再接続 =====
 setInterval(()=>{
-    if(peerReady && latestUserList.length > 0){
+    if(peerReady && latestUserList.length){
         connectUsers(latestUserList);
     }
 }, 3000);
@@ -221,6 +232,16 @@ socket.onmessage = msg => {
     }
 };
 
+// ===== 発言制御（本番仕様）=====
+setInterval(() => {
+
+    if(localStream){
+        localStream.getAudioTracks()[0].enabled =
+            (currentSpeaker === myId || talkLocked);
+    }
+
+}, 100);
+
 // ===== ボタン =====
 let talk = document.getElementById("talk");
 
@@ -228,8 +249,6 @@ talk.addEventListener("pointerdown", async (e)=>{
     e.preventDefault();
 
     if(!initialized) await init();
-
-    audioElement.play().catch(()=>{});
 
     socket.send(JSON.stringify({ type:"requestTalk" }));
 });
@@ -243,17 +262,16 @@ talk.addEventListener("pointerup", (e)=>{
     }));
 });
 
-// ===== 固定 =====
+// ===== 固定ボタン =====
 let lockBtn = document.getElementById("lockTalk");
-let locked = false;
 
 lockBtn.addEventListener("click", async ()=>{
 
     if(!initialized) await init();
 
-    locked = !locked;
+    talkLocked = !talkLocked;
 
-    if(locked){
+    if(talkLocked){
         lockBtn.textContent = "🔓 固定ON";
         socket.send(JSON.stringify({ type:"requestTalk" }));
     }else{
