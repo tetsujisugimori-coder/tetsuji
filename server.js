@@ -92,24 +92,31 @@ wss.on("connection", ws => {
             }
         }
 
-        // ===== 発言終了 =====
-        if (data.type === "stopTalk") {
+       // ===== 発言終了 =====
+    if (data.type === "stopTalk") {
 
-            if (currentSpeaker === ws.id) {
+        if (currentSpeaker === ws.id) {
 
-                console.log("終了:", ws.id);
+            currentSpeaker = null;
 
-                currentSpeaker = null;
+            broadcast({
+                type: "speaker",
+                id: null
+            });
 
-                broadcast({
-                    type: "speaker",
-                    id: null
-                });
-
-                clearTimeout(speakerTimer);
-            }
+            clearTimeout(speakerTimer);
         }
-    });
+    }
+
+    // ★ここに追加（文字起こし）
+    if (data.type === "transcript") {
+        broadcast({
+            type: "transcript",
+            id: data.id,
+            text: data.text
+        });
+    }
+});
 
     // ===== 切断 =====
     ws.on("close", () => {
