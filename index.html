@@ -99,8 +99,10 @@ if(SpeechRecognition){
         recognitionRunning = false;
 
         if((currentSpeaker === myId || talkLocked) && userInteracted){
-            recognition.start();
-            recognitionRunning = true;
+            try{
+                recognition.start();
+                recognitionRunning = true;
+            }catch(e){}
         }
     };
 }
@@ -140,10 +142,14 @@ function createPeer(){
         call.answer(localStream);
         attachCallEvents(call);
     });
+
+    peer.on("error", err => log("Peerエラー: " + err));
 }
 
 // ===== 通話 =====
 function attachCallEvents(call){
+
+    if(!call) return; // ★重要
 
     call.on("stream", stream => {
 
@@ -163,18 +169,26 @@ function attachCallEvents(call){
     call.on("close", ()=>{
         delete audioMap[call.peer];
     });
+
+    call.on("error", err => log("通話エラー: " + err));
 }
 
 // ===== 接続 =====
 function connectUsers(users){
 
-    if(!peerReady) return;
+    if(!peerReady || !localStream) return;
 
     users.forEach(id => {
 
         if(id !== myId && !connectedPeers[id]){
 
             let call = peer.call(id, localStream);
+
+            if(!call){
+                log("call失敗: " + id);
+                return;
+            }
+
             attachCallEvents(call);
             connectedPeers[id] = true;
         }
@@ -187,6 +201,10 @@ setInterval(()=>{
 },2000);
 
 // ===== WebSocket =====
+socket.onopen = () => log("✅ WS接続OK");
+socket.onerror = () => log("❌ WSエラー");
+socket.onclose = () => log("⚠️ WS切断");
+
 socket.onmessage = msg => {
 
     let data = JSON.parse(msg.data);
@@ -229,13 +247,17 @@ setInterval(() => {
     if(recognition && userInteracted){
 
         if(shouldTalk && !recognitionRunning){
-            recognition.start();
-            recognitionRunning = true;
+            try{
+                recognition.start();
+                recognitionRunning = true;
+            }catch(e){}
         }
 
         if(!shouldTalk && recognitionRunning){
-            recognition.stop();
-            recognitionRunning = false;
+            try{
+                recognition.stop();
+                recognitionRunning = false;
+            }catch(e){}
         }
     }
 
