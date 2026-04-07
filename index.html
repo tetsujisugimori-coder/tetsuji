@@ -7,15 +7,22 @@
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
 <style>
-body { user-select:none; }
+body { user-select:none; font-family:sans-serif; }
 button { font-size:20px; padding:20px; margin-right:10px; }
-#log { background:#000; color:#0f0; font-size:12px; height:200px; overflow:auto; }
+#log {
+  background:#000;
+  color:#0f0;
+  font-size:12px;
+  height:200px;
+  overflow:auto;
+  padding:5px;
+}
 </style>
 </head>
 
 <body>
 
-<h2>インカム（安定版）</h2>
+<h2>インカム（最終版）</h2>
 
 <p>自分: <span id="myId"></span></p>
 <p>話者: <span id="speaker">なし</span></p>
@@ -23,7 +30,6 @@ button { font-size:20px; padding:20px; margin-right:10px; }
 <button id="talk">🎤 話す</button>
 <button id="lockTalk">🔒 固定OFF</button>
 
-<canvas id="meter" width="300" height="50"></canvas>
 <div id="log"></div>
 
 <script>
@@ -31,10 +37,12 @@ button { font-size:20px; padding:20px; margin-right:10px; }
 // ===== ログ =====
 function log(msg){
     console.log(msg);
-    document.getElementById("log").innerHTML += msg + "<br>";
+    const logEl = document.getElementById("log");
+    logEl.innerHTML += msg + "<br>";
+    logEl.scrollTop = logEl.scrollHeight;
 }
 
-// ===== マイク制御（改善①）=====
+// ===== マイク制御 =====
 function setMicEnabled(enabled){
     if(localStream){
         localStream.getAudioTracks().forEach(track=>{
@@ -43,7 +51,7 @@ function setMicEnabled(enabled){
     }
 }
 
-// ===== 他人音ミュート（改善③）=====
+// ===== 他人音ミュート =====
 function updateAudioMute(){
     Object.keys(audioMap).forEach(id=>{
         audioMap[id].muted = (currentSpeaker === myId);
@@ -63,6 +71,35 @@ let latestUserList = [];
 let peerReady = false;
 let initialized = false;
 
+// ===== 音声認識 =====
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+
+if(SpeechRecognition){
+    recognition = new SpeechRecognition();
+    recognition.lang = "ja-JP";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event) => {
+        const text = event.results[event.results.length - 1][0].transcript;
+
+        log(`[${new Date().toLocaleTimeString()}] 自分: ${text}`);
+
+        socket.send(JSON.stringify({
+            type: "transcript",
+            text: text,
+            id: myId
+        }));
+    };
+
+    recognition.onend = () => {
+        if(currentSpeaker === myId || talkLocked){
+            recognition.start();
+        }
+    };
+}
+
 // ===== 初期化 =====
 async function init(){
 
@@ -74,7 +111,8 @@ async function init(){
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
-            channelCount: 1 // ★改善④
+            channelCount: 1,
+            sampleRate: 16000
         }
     });
 
@@ -97,7 +135,7 @@ function createPeer(){
     });
 }
 
-// ===== 通話 =====
+// ===== 通話処理 =====
 function attachCallEvents(call){
 
     call.on("stream", stream => {
@@ -109,7 +147,7 @@ function attachCallEvents(call){
         audio.autoplay = true;
         audio.setAttribute("playsinline", true);
 
-        audio.volume = 0.5; // ★改善②
+        audio.volume = 0.5;
 
         audio.play().catch(()=>{});
 
@@ -143,9 +181,9 @@ function connectUsers(users){
 // ===== 再接続 =====
 setInterval(()=>{
     if(peerReady) connectUsers(latestUserList);
-},3000);
+},2000);
 
-// ===== WebSocket =====
+// ===== WebSocket受信 =====
 socket.onmessage = msg => {
 
     let data = JSON.parse(msg.data);
@@ -166,23 +204,31 @@ socket.onmessage = msg => {
         document.getElementById("speaker").textContent =
             currentSpeaker ? currentSpeaker : "なし";
 
-        updateAudioMute(); // ★改善③
+        updateAudioMute();
     }
+
+    // ★文字起こし（時刻付き）
     if(data.type === "transcript"){
-    log(`[${new Date().toLocaleTimeString()}] ${data.id}: ${data.text}`);
-}
+        log(`[${new Date().toLocaleTimeString()}] ${data.id}: ${data.text}`);
+    }
+
+    if(data.type === "busy"){
+        log("他の人が話しています");
+    }
 };
 
-// ===== マイク制御ループ（改善①）=====
+// ===== マイク制御 =====
 setInterval(() => {
 
     if(currentSpeaker === myId || talkLocked){
         setMicEnabled(true);
+        if(recognition) recognition.start();
     }else{
         setMicEnabled(false);
+        if(recognition) recognition.stop();
     }
 
-}, 50);
+}, 200);
 
 // ===== ボタン =====
 document.getElementById("talk").onpointerdown = async ()=>{
@@ -211,49 +257,3 @@ document.getElementById("lockTalk").onclick = async ()=>{
 </script>
 </body>
 </html>
-<script>
-
-// ===== 音声認識 =====
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition = null;
-
-if(SpeechRecognition){
-    recognition = new SpeechRecognition();
-    recognition.lang = "ja-JP";
-    recognition.continuous = true;
-    recognition.interimResults = false;
-
-    recognition.onresult = (event) => {
-
-        const text = event.results[event.results.length - 1][0].transcript;
-
-        log("📝 " + text);
-
-        socket.send(JSON.stringify({
-            type: "transcript",
-            text: text,
-            id: myId
-        }));
-    };
-
-    recognition.onend = () => {
-        if(currentSpeaker === myId || talkLocked){
-            recognition.start(); // 自動再開
-        }
-    };
-}
-
-// ===== マイク制御に追加 =====
-setInterval(() => {
-
-    if(currentSpeaker === myId || talkLocked){
-        setMicEnabled(true);
-        if(recognition) recognition.start();
-    }else{
-        setMicEnabled(false);
-        if(recognition) recognition.stop();
-    }
-
-}, 200);
-
-</script>
