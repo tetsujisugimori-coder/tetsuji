@@ -22,7 +22,7 @@ button { font-size:20px; padding:20px; margin-right:10px; }
 
 <body>
 
-<h2>インカム（最終安定版）</h2>
+<h2>インカム（最終完成版）</h2>
 
 <p>自分: <span id="myId"></span></p>
 <p>話者: <span id="speaker">なし</span></p>
@@ -54,6 +54,7 @@ let talkLocked = false;
 let latestUserList = [];
 let peerReady = false;
 let initialized = false;
+let userInteracted = false;
 
 // ===== マイク制御 =====
 function setMicEnabled(enabled){
@@ -97,7 +98,7 @@ if(SpeechRecognition){
     recognition.onend = () => {
         recognitionRunning = false;
 
-        if(currentSpeaker === myId || talkLocked){
+        if((currentSpeaker === myId || talkLocked) && userInteracted){
             recognition.start();
             recognitionRunning = true;
         }
@@ -108,6 +109,8 @@ if(SpeechRecognition){
 async function init(){
 
     if(initialized) return;
+    if(!userInteracted) return;
+
     initialized = true;
 
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -207,7 +210,6 @@ socket.onmessage = msg => {
         updateAudioMute();
     }
 
-    // ★文字起こし（時刻付き）
     if(data.type === "transcript"){
         log(`[${new Date().toLocaleTimeString()}] ${data.id}: ${data.text}`);
     }
@@ -217,14 +219,14 @@ socket.onmessage = msg => {
     }
 };
 
-// ===== マイク＋認識制御（修正版）=====
+// ===== マイク＋認識制御 =====
 setInterval(() => {
 
     const shouldTalk = (currentSpeaker === myId || talkLocked);
 
     setMicEnabled(shouldTalk);
 
-    if(recognition){
+    if(recognition && userInteracted){
 
         if(shouldTalk && !recognitionRunning){
             recognition.start();
@@ -241,6 +243,7 @@ setInterval(() => {
 
 // ===== ボタン =====
 document.getElementById("talk").onpointerdown = async ()=>{
+    userInteracted = true;
     await init();
     socket.send(JSON.stringify({ type:"requestTalk" }));
 };
@@ -252,6 +255,7 @@ document.getElementById("talk").onpointerup = ()=>{
 // ===== 固定 =====
 document.getElementById("lockTalk").onclick = async ()=>{
 
+    userInteracted = true;
     await init();
 
     talkLocked = !talkLocked;
