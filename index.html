@@ -7,7 +7,7 @@
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
 <style>
-body { user-select:none; font-family:sans-serif; }
+body { font-family:sans-serif; }
 button { font-size:20px; padding:20px; margin-right:10px; }
 #log {
   background:#000;
@@ -22,7 +22,7 @@ button { font-size:20px; padding:20px; margin-right:10px; }
 
 <body>
 
-<h2>インカム（最終版）</h2>
+<h2>インカム（最終安定版）</h2>
 
 <p>自分: <span id="myId"></span></p>
 <p>話者: <span id="speaker">なし</span></p>
@@ -37,25 +37,9 @@ button { font-size:20px; padding:20px; margin-right:10px; }
 // ===== ログ =====
 function log(msg){
     console.log(msg);
-    const logEl = document.getElementById("log");
-    logEl.innerHTML += msg + "<br>";
-    logEl.scrollTop = logEl.scrollHeight;
-}
-
-// ===== マイク制御 =====
-function setMicEnabled(enabled){
-    if(localStream){
-        localStream.getAudioTracks().forEach(track=>{
-            track.enabled = enabled;
-        });
-    }
-}
-
-// ===== 他人音ミュート =====
-function updateAudioMute(){
-    Object.keys(audioMap).forEach(id=>{
-        audioMap[id].muted = (currentSpeaker === myId);
-    });
+    const el = document.getElementById("log");
+    el.innerHTML += msg + "<br>";
+    el.scrollTop = el.scrollHeight;
 }
 
 // ===== 状態 =====
@@ -71,9 +55,26 @@ let latestUserList = [];
 let peerReady = false;
 let initialized = false;
 
+// ===== マイク制御 =====
+function setMicEnabled(enabled){
+    if(localStream){
+        localStream.getAudioTracks().forEach(track=>{
+            track.enabled = enabled;
+        });
+    }
+}
+
+// ===== 他人音ミュート =====
+function updateAudioMute(){
+    Object.values(audioMap).forEach(audio=>{
+        audio.muted = (currentSpeaker === myId);
+    });
+}
+
 // ===== 音声認識 =====
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
+let recognitionRunning = false;
 
 if(SpeechRecognition){
     recognition = new SpeechRecognition();
@@ -88,14 +89,17 @@ if(SpeechRecognition){
 
         socket.send(JSON.stringify({
             type: "transcript",
-            text: text,
+            text,
             id: myId
         }));
     };
 
     recognition.onend = () => {
+        recognitionRunning = false;
+
         if(currentSpeaker === myId || talkLocked){
             recognition.start();
+            recognitionRunning = true;
         }
     };
 }
@@ -135,7 +139,7 @@ function createPeer(){
     });
 }
 
-// ===== 通話処理 =====
+// ===== 通話 =====
 function attachCallEvents(call){
 
     call.on("stream", stream => {
@@ -146,7 +150,6 @@ function attachCallEvents(call){
         audio.srcObject = stream;
         audio.autoplay = true;
         audio.setAttribute("playsinline", true);
-
         audio.volume = 0.5;
 
         audio.play().catch(()=>{});
@@ -155,10 +158,7 @@ function attachCallEvents(call){
     });
 
     call.on("close", ()=>{
-        if(audioMap[call.peer]){
-            audioMap[call.peer].remove();
-            delete audioMap[call.peer];
-        }
+        delete audioMap[call.peer];
     });
 }
 
@@ -183,7 +183,7 @@ setInterval(()=>{
     if(peerReady) connectUsers(latestUserList);
 },2000);
 
-// ===== WebSocket受信 =====
+// ===== WebSocket =====
 socket.onmessage = msg => {
 
     let data = JSON.parse(msg.data);
@@ -217,15 +217,24 @@ socket.onmessage = msg => {
     }
 };
 
-// ===== マイク制御 =====
+// ===== マイク＋認識制御（修正版）=====
 setInterval(() => {
 
-    if(currentSpeaker === myId || talkLocked){
-        setMicEnabled(true);
-        if(recognition) recognition.start();
-    }else{
-        setMicEnabled(false);
-        if(recognition) recognition.stop();
+    const shouldTalk = (currentSpeaker === myId || talkLocked);
+
+    setMicEnabled(shouldTalk);
+
+    if(recognition){
+
+        if(shouldTalk && !recognitionRunning){
+            recognition.start();
+            recognitionRunning = true;
+        }
+
+        if(!shouldTalk && recognitionRunning){
+            recognition.stop();
+            recognitionRunning = false;
+        }
     }
 
 }, 200);

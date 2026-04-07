@@ -5,10 +5,9 @@ const wss = new WebSocket.Server({ port });
 
 let users = {};
 let currentSpeaker = null;
-
-// ===== タイムアウト =====
 let speakerTimer = null;
 
+// ===== タイムアウト =====
 function setSpeakerTimeout() {
     clearTimeout(speakerTimer);
 
@@ -45,18 +44,25 @@ wss.on("connection", ws => {
 
     console.log("接続:", id);
 
-    // 自分のID送信
+    // ===== 自分のID =====
     ws.send(JSON.stringify({
         type: "yourId",
         id
     }));
 
-    // ユーザー一覧
+    // ===== 現在の話者を同期（重要）=====
+    ws.send(JSON.stringify({
+        type: "speaker",
+        id: currentSpeaker
+    }));
+
+    // ===== ユーザー一覧 =====
     broadcast({
         type: "userList",
         users: Object.keys(users)
     });
 
+    // ===== メッセージ受信 =====
     ws.on("message", msg => {
 
         let data;
@@ -92,31 +98,34 @@ wss.on("connection", ws => {
             }
         }
 
-       // ===== 発言終了 =====
-    if (data.type === "stopTalk") {
+        // ===== 発言終了 =====
+        if (data.type === "stopTalk") {
 
-        if (currentSpeaker === ws.id) {
+            if (currentSpeaker === ws.id) {
 
-            currentSpeaker = null;
+                console.log("終了:", ws.id);
+
+                currentSpeaker = null;
+
+                broadcast({
+                    type: "speaker",
+                    id: null
+                });
+
+                clearTimeout(speakerTimer);
+            }
+        }
+
+        // ===== 文字起こし =====
+        if (data.type === "transcript") {
 
             broadcast({
-                type: "speaker",
-                id: null
+                type: "transcript",
+                id: data.id,
+                text: data.text
             });
-
-            clearTimeout(speakerTimer);
         }
-    }
-
-    // ★ここに追加（文字起こし）
-    if (data.type === "transcript") {
-        broadcast({
-            type: "transcript",
-            id: data.id,
-            text: data.text
-        });
-    }
-});
+    });
 
     // ===== 切断 =====
     ws.on("close", () => {
@@ -125,6 +134,7 @@ wss.on("connection", ws => {
 
         delete users[ws.id];
 
+        // 話者が切断した場合
         if (currentSpeaker === ws.id) {
 
             currentSpeaker = null;
@@ -137,6 +147,7 @@ wss.on("connection", ws => {
             clearTimeout(speakerTimer);
         }
 
+        // ユーザー一覧更新
         broadcast({
             type: "userList",
             users: Object.keys(users)
