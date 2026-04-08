@@ -34,6 +34,12 @@ button {
 <button id="talk">🎤 話す</button>
 <button id="lockTalk">🔒 固定OFF</button>
 
+<p>
+  🔊 音量:
+  <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.3">
+  <span id="volumeValue">0.3</span>
+</p>
+
 <canvas id="meter" width="300" height="50" style="border:1px solid #333;"></canvas>
 
 <div id="log"></div>
@@ -83,6 +89,7 @@ let peerReady = false;
 let initialized = false;
 let latestUserList = [];
 let audioMap = {}; // ★ 複数音声管理
+let masterVolume = 0.3;
 
 let talkLocked = false;
 
@@ -99,12 +106,21 @@ async function init(){
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
-                autoGainControl: true
+                autoGainControl: false, //マイク感度を下げる
+
+                googEchoCancellation: true,
+                googNoiseSuppression: true,
+                googHighpassFilter: true,
+
+                sampleRate: 48000,
+                channelCount: 1 //モノラル限定に
             }
         });
 
         // ★ 初期はOFF（話者のみON）
         localStream.getAudioTracks()[0].enabled = false;
+
+        updateMicState(); //追加
 
         startMicMonitor(localStream);
 
@@ -148,24 +164,32 @@ function attachCallEvents(call){
             log("自分の音スキップ");
             return;
         }
+        //音声遮断をさらに強化
+        if(stream.id === localStream.id){
+            return;
+        }
 
         log("音声受信: " + call.peer);
 
         let audio = new Audio();
         audio.srcObject = stream;
         audio.autoplay = true;
+        audio.volume = masterVolume;
         audio.setAttribute("playsinline", true);
 
         audio.play().catch(()=>{});
 
         audioMap[call.peer] = audio;
+
+        updateAudioState(); 
     });
 
     call.on("close", ()=>{
         log("通話終了: " + call.peer);
 
         if(audioMap[call.peer]){
-            audioMap[call.peer].remove();
+            audioMap[call.peer].pause(); //追加[]
+            audioMap[call.peer].srcObject = null; //追加
             delete audioMap[call.peer];
         }
     });
@@ -191,6 +215,19 @@ function connectUsers(users){
             connectedPeers[id] = true;
         }
     });
+}
+
+//話者変更・新規接続時の制御用定義
+function updateAudioState(){
+    Object.keys(audioMap).forEach(id =>{
+        const audio = audioMap[id];
+        if(!audio) return;
+        //ミュート制御
+            audio.muted = (id !== currentSpeaker);
+
+        //音量制御
+            audio.volume =(id === currentSpeaker) ? masterVolume : 0;
+        });
 }
 
 // ===== 再接続 =====
@@ -225,6 +262,9 @@ socket.onmessage = msg => {
 
         document.getElementById("speaker").textContent =
             currentSpeaker ? currentSpeaker : "なし";
+
+        updateAudioState(); //追加　
+        updateMicState(); //追加
     }
 
     if(data.type === "busy"){
@@ -232,15 +272,15 @@ socket.onmessage = msg => {
     }
 };
 
-// ===== 発言制御（本番仕様）=====
-setInterval(() => {
-
+// ON　OFF制御をイベント工藤にする
+function updateMicState(){
     if(localStream){
-        localStream.getAudioTracks()[0].enabled =
-            (currentSpeaker === myId || talkLocked);
-    }
+        localStream.getAudioTracks()[0].enabled = 
+        (currentSpeaker === myId || talkLocked);
 
-}, 100);
+        
+    }
+}
 
 // ===== ボタン =====
 let talk = document.getElementById("talk");
@@ -262,6 +302,17 @@ talk.addEventListener("pointerup", (e)=>{
     }));
 });
 
+// ===== 音量スライダー =====
+const slider = document.getElementById("volumeSlider");
+const volumeValue = document.getElementById("volumeValue");
+
+slider.addEventListener("input", () => {
+    masterVolume = parseFloat(slider.value);
+    volumeValue.textContent = masterVolume.toFixed(2);
+
+    updateAudioState();
+});
+
 // ===== 固定ボタン =====
 let lockBtn = document.getElementById("lockTalk");
 
@@ -278,6 +329,7 @@ lockBtn.addEventListener("click", async ()=>{
         lockBtn.textContent = "🔒 固定OFF";
         socket.send(JSON.stringify({ type:"stopTalk", id: myId }));
     }
+    updateMicState(); //追加
 });
 
 </script>
