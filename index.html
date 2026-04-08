@@ -28,6 +28,9 @@ button {
 
 <h2>インカム（本番版）</h2>
 
+<h3>接続デバイス</h3>
+<ul id="userList"></ul>
+
 <p>自分: <span id="myId"></span></p>
 <p>話者: <span id="speaker">なし</span></p>
 
@@ -39,6 +42,10 @@ button {
   <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.3">
   <span id="volumeValue">0.3</span>
 </p>
+
+<P>
+    <button id = "changeName">名前変更（任意）</button>
+</P>
 
 <canvas id="meter" width="300" height="50" style="border:1px solid #333;"></canvas>
 
@@ -92,6 +99,8 @@ let audioMap = {}; // ★ 複数音声管理
 let masterVolume = 0.3;
 
 let talkLocked = false;
+
+let myName = "";
 
 // ===== 初期化 =====
 async function init(){
@@ -217,6 +226,27 @@ function connectUsers(users){
     });
 }
 
+//ユーザーリストの表示処理
+function updateUserList(){
+    const ul = document.getElementById("userList");
+    ul.innerHTML = "";
+
+    latestUserList.forEach(user =>{
+        const li = document.createElement("li");
+        li.textContent = (user.id === myId ? "👉 " : "") + (user.name || user.id);
+        ul.appendChild(li);
+    });
+}
+
+//名前送信
+function sendName(){
+    socket.send(JSON.stringify({
+     type: "setName",
+     id: myId,
+     name: myName   
+    }));
+}
+
 //話者変更・新規接続時の制御用定義
 function updateAudioState(){
     Object.keys(audioMap).forEach(id =>{
@@ -229,6 +259,15 @@ function updateAudioState(){
             audio.volume =(id === currentSpeaker) ? masterVolume : 0;
         });
 }
+
+document.getElementById("changeName").addEventListener("click",()=>{
+    const newName = prompt("名前を入力してください");
+
+    if(newName){
+        myName = newName;
+        sendName();
+    }
+});
 
 // ===== 再接続 =====
 setInterval(()=>{
@@ -250,11 +289,18 @@ socket.onmessage = msg => {
         myId = data.id;
         document.getElementById("myId").textContent = myId;
 
-        createPeer();
+        //自動名前生成
+     if(!myName || myName === ""){
+       myName = generateName();
+     }
+              sendName();
+              createPeer();
     }
 
     if(data.type === "userList"){
-        latestUserList = data.users;
+        latestUserList = data.users;  //→｛id,name}
+
+        updateUserList(); //追加
     }
 
     if(data.type === "speaker"){
@@ -272,7 +318,7 @@ socket.onmessage = msg => {
     }
 };
 
-// ON　OFF制御をイベント工藤にする
+// ON　OFF制御をイベント駆動にする
 function updateMicState(){
     if(localStream){
         localStream.getAudioTracks()[0].enabled = 
@@ -280,6 +326,30 @@ function updateMicState(){
 
         
     }
+}
+
+//デバイス判定関数
+function getDeviceType(){
+    const ua = navigator.userAgent;
+    
+    //iphone
+    if(/iphone/i.test(ua)) return "iphone";
+
+    //Android
+    if(
+        /ipad/.test(ua) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+      ){
+        return "ipad";
+      }
+      return "PC";
+}
+
+//自動名前生成
+function generateName(){
+    const type = getDeviceType();
+
+    return type + " " + myId.slice(0,4);
 }
 
 // ===== ボタン =====

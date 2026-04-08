@@ -4,6 +4,23 @@ const port = process.env.PORT || 3000;
 const wss = new WebSocket.Server({ port });
 
 let users = {};
+
+function broadcastUserList(){
+    const list = Object.keys(users).map(id => ({
+        id,
+        name: users[id]?.name || id
+    }));
+
+    wss.clients.forEach(client =>{
+        if(client.readyState === WebSocket.OPEN){
+            client.send(JSON.stringify({
+            type: "userList",
+            users: list
+        }));
+        }
+        
+    });
+}
 let currentSpeaker = null;
 let speakerTimer = null;
 
@@ -27,7 +44,7 @@ function setSpeakerTimeout() {
 
 // ===== 全体送信 =====
 function broadcast(data) {
-    Object.values(users).forEach(client => {
+    Object.values(sockets).forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(data));
         }
@@ -35,12 +52,13 @@ function broadcast(data) {
 }
 
 // ===== 接続 =====
+let sockets ={};
 wss.on("connection", ws => {
 
     const id = Math.random().toString(36).substr(2, 9);
     ws.id = id;
 
-    users[id] = ws;
+    sockets[id] = ws;
 
     console.log("接続:", id);
 
@@ -57,10 +75,7 @@ wss.on("connection", ws => {
     }));
 
     // ===== ユーザー一覧 =====
-    broadcast({
-        type: "userList",
-        users: Object.keys(users)
-    });
+    broadcastUserList();
 
     // ===== メッセージ受信 =====
     ws.on("message", msg => {
@@ -70,6 +85,14 @@ wss.on("connection", ws => {
             data = JSON.parse(msg);
         } catch {
             return;
+        }
+
+        //追加
+        if(data.type === "setName"){
+            users[data.id] = {
+                name: data.name || data.id
+            };
+            broadcastUserList();
         }
 
         // ===== 発言要求 =====
@@ -114,6 +137,7 @@ wss.on("connection", ws => {
 
                 clearTimeout(speakerTimer);
             }
+            
         }
 
         // ===== 文字起こし =====
@@ -133,6 +157,7 @@ wss.on("connection", ws => {
         console.log("切断:", ws.id);
 
         delete users[ws.id];
+        delete sockets[ws.id];
 
         // 話者が切断した場合
         if (currentSpeaker === ws.id) {
@@ -148,10 +173,7 @@ wss.on("connection", ws => {
         }
 
         // ユーザー一覧更新
-        broadcast({
-            type: "userList",
-            users: Object.keys(users)
-        });
+        broadcastUserList();
     });
 });
 
