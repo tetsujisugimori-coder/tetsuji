@@ -8,7 +8,7 @@ let users = {};
 function broadcastUserList(){
     const list = Object.keys(users).map(uid => ({
         id: uid,
-        name: users[uid]?.name || id
+        name: users[uid]?.name || uid
     }));
 
     wss.clients.forEach(client =>{
@@ -55,8 +55,8 @@ function broadcast(data) {
 let sockets ={};
 wss.on("connection", ws => {
 
-    const clientId = Math.random().toString(36).substr(2, 9);
-    ws.id = clientId;
+    const id = Math.random().toString(36).slice(2, 11);
+    ws.id = id;
 
     sockets[id] = ws;
 
