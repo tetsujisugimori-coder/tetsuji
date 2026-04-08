@@ -101,6 +101,7 @@ let masterVolume = 0.3;
 let talkLocked = false;
 
 let myName = "";
+let audioContext;
 
 // ===== 初期化 =====
 async function init(){
@@ -154,7 +155,7 @@ function createPeer(){
     });
 
     peer.on("error", err => log("Peerエラー: " + err));
-
+    
     peer.on("call", call => {
         log("着信: " + call.peer);
 
@@ -173,10 +174,7 @@ function attachCallEvents(call){
             log("自分の音スキップ");
             return;
         }
-        //音声遮断をさらに強化
-        if(stream.id === localStream.id){
-            return;
-        }
+        
 
         log("音声受信: " + call.peer);
 
@@ -186,8 +184,12 @@ function attachCallEvents(call){
         audio.volume = masterVolume;
         audio.setAttribute("playsinline", true);
 
-        audio.play().catch(()=>{});
+        audio.play().catch(err => {
+            log("再生ブロック: " + err);
 
+
+        });
+         
         audioMap[call.peer] = audio;
 
         updateAudioState(); 
@@ -256,7 +258,9 @@ function updateAudioState(){
             audio.muted = (id !== currentSpeaker);
 
         //音量制御
-            audio.volume =(id === currentSpeaker) ? masterVolume : 0;
+            audio.volume =(id === currentSpeaker || !currentSpeaker) 
+            ? masterVolume 
+            : 0;
         });
 }
 
@@ -358,6 +362,12 @@ let talk = document.getElementById("talk");
 talk.addEventListener("pointerdown", async (e)=>{
     e.preventDefault();
 
+    if(!audioContext){
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    } 
+    await audioContext.resume();
+
     if(!initialized) await init();
 
     socket.send(JSON.stringify({ type:"requestTalk" }));
@@ -401,6 +411,8 @@ lockBtn.addEventListener("click", async ()=>{
     }
     updateMicState(); //追加
 });
+
+
 
 </script>
 
