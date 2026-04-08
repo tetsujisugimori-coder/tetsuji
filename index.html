@@ -226,19 +226,17 @@ function connectUsers(users){
 
     if(!peerReady) return;
 
-    users.forEach(id => {
+    users.forEach(userId => {
 
-        const id = user.id;
+         if(userId !== myId && !connectedPeers[userId]){
 
-        if(id !== myId && !connectedPeers[id]){
+            log("発信開始: " + userId);
 
-            log("発信開始: " + id);
-
-            let call = peer.call(id, localStream);
+            let call = peer.call(userId, localStream);
 
             attachCallEvents(call);
 
-            connectedPeers[id] = true;
+            connectedPeers[userId] = true;
         }
     });
 }
