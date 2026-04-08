@@ -6,9 +6,9 @@ const wss = new WebSocket.Server({ port });
 let users = {};
 
 function broadcastUserList(){
-    const list = Object.keys(users).map(id => ({
-        id,
-        name: users[id]?.name || id
+    const list = Object.keys(users).map(uid => ({
+        id: uid,
+        name: users[uid]?.name || id
     }));
 
     wss.clients.forEach(client =>{
@@ -55,8 +55,8 @@ function broadcast(data) {
 let sockets ={};
 wss.on("connection", ws => {
 
-    const id = Math.random().toString(36).substr(2, 9);
-    ws.id = id;
+    const clientId = Math.random().toString(36).substr(2, 9);
+    ws.id = clientId;
 
     sockets[id] = ws;
 
