@@ -92,6 +92,12 @@ function startMicMonitor(stream){
     draw();
 }
 
+window.onerror = function(msg, url, line) {
+    alert("エラー: " + msg + " 行:" + line);
+};
+
+console.log("JSスタート");
+
 // ===== 状態 =====
 let socket = new WebSocket("wss://peerjs-server-etm4.onrender.com");
 let peer;
