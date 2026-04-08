@@ -156,7 +156,11 @@ async function init(){
 // ===== Peer作成 =====
 function createPeer(){
 
-    peer = new Peer(myId,{ host:"0,peerjs.com",port:443,secure:true});
+    peer = new Peer(myId,{ 
+        host:"0.peerjs.com",
+        port:443,
+        secure:true
+    });
 
     peer.on("open", peerId => {
         log("PeerID: " + peerId);
