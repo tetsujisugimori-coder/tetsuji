@@ -361,7 +361,7 @@ function generateName(){
 // ===== ボタン =====
 let talk = document.getElementById("talk");
 
-talk.addEventListener("pointerdown", async (e)=>{
+talk.addEventListener("click", async (e)=>{
     e.preventDefault();
 
     if(!audioContext){
@@ -375,7 +375,7 @@ talk.addEventListener("pointerdown", async (e)=>{
     socket.send(JSON.stringify({ type:"requestTalk" }));
 });
 
-talk.addEventListener("pointerup", (e)=>{
+talk.addEventListener("mouseup", (e)=>{
     e.preventDefault();
 
     socket.send(JSON.stringify({
