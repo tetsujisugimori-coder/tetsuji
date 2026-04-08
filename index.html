@@ -143,7 +143,7 @@ async function init(){
 // ===== Peer作成 =====
 function createPeer(){
 
-    peer = new Peer(myId);
+    peer = new Peer(myId,{ host:"0,peerjs.com",port:443,secure:true});
 
     peer.on("open", id => {
         log("PeerID: " + id);
@@ -214,6 +214,8 @@ function connectUsers(users){
     if(!peerReady) return;
 
     users.forEach(id => {
+
+        const id = user.id;
 
         if(id !== myId && !connectedPeers[id]){
 
