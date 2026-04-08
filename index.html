@@ -7,12 +7,11 @@
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
 <style>
-body { user-select:none; -webkit-user-select:none; }
+body { user-select:none; }
 button {
   font-size:20px;
   padding:20px;
   margin-right:10px;
-  touch-action:manipulation;
 }
 #log {
   background:#000;
@@ -26,15 +25,13 @@ button {
 
 <body>
 
-<h2>インカム（本番版）</h2>
+<h2>インカム（安定版）</h2>
 
 <p>自分: <span id="myId"></span></p>
 <p>話者: <span id="speaker">なし</span></p>
 
 <button id="talk">🎤 話す</button>
 <button id="lockTalk">🔒 固定OFF</button>
-
-<canvas id="meter" width="300" height="50" style="border:1px solid #333;"></canvas>
 
 <div id="log"></div>
 
@@ -46,239 +43,187 @@ function log(msg){
     document.getElementById("log").innerHTML += msg + "<br>";
 }
 
-// ===== マイクメーター =====
-function startMicMonitor(stream){
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const analyser = audioContext.createAnalyser();
-    const mic = audioContext.createMediaStreamSource(stream);
-    mic.connect(analyser);
-
-    analyser.fftSize = 256;
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-    const canvas = document.getElementById("meter");
-    const ctx = canvas.getContext("2d");
-
-    function draw(){
-        requestAnimationFrame(draw);
-        analyser.getByteFrequencyData(dataArray);
-
-        let volume = dataArray.reduce((a,b)=>a+b) / dataArray.length;
-
-        ctx.clearRect(0,0,300,50);
-        ctx.fillStyle = volume > 50 ? "red" : "lime";
-        ctx.fillRect(0,0,volume*2,50);
-    }
-    draw();
-}
-
 // ===== 状態 =====
 let socket = new WebSocket("wss://peerjs-server-etm4.onrender.com");
 let peer;
 let localStream;
 let myId = null;
 let currentSpeaker = null;
-let connectedPeers = {};
-let peerReady = false;
-let initialized = false;
-let latestUserList = [];
-let audioMap = {}; // ★ 複数音声管理
-
+let audioMap = {};
 let talkLocked = false;
 
 // ===== 初期化 =====
 async function init(){
 
-    if(initialized) return;
-    initialized = true;
+    if(localStream) return;
 
-    log("初期化開始");
+    localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: false,
 
-    try{
-        localStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        });
+            // Chromium系
+            googEchoCancellation: true,
+            googNoiseSuppression: true,
+            googHighpassFilter: true,
 
-        // ★ 初期はOFF（話者のみON）
-        localStream.getAudioTracks()[0].enabled = false;
+            // Edge強化
+            voiceIsolation: true,
+            suppressLocalAudioPlayback: true,
 
-        startMicMonitor(localStream);
+            sampleRate: 48000,
+            channelCount: 1
+        }
+    });
 
-        log("マイクOK");
-    }catch(e){
-        log("マイクNG: " + e.message);
-    }
+    // 初期はOFF
+    localStream.getAudioTracks()[0].enabled = false;
+
+    setupNoiseGate(localStream);
+
+    log("マイク準備OK");
 }
 
-// ===== Peer作成 =====
+// ===== ノイズゲート =====
+function setupNoiseGate(stream){
+
+    const ctx = new AudioContext();
+    const analyser = ctx.createAnalyser();
+    const src = ctx.createMediaStreamSource(stream);
+
+    src.connect(analyser);
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+
+    setInterval(()=>{
+
+        analyser.getByteFrequencyData(data);
+        let volume = data.reduce((a,b)=>a+b)/data.length;
+
+        const speaking = volume > 45;
+
+        if(localStream){
+            const track = localStream.getAudioTracks()[0];
+
+            track.enabled =
+                speaking &&
+                (currentSpeaker === myId || talkLocked);
+        }
+
+    }, 80);
+}
+
+// ===== Peer =====
 function createPeer(){
 
     peer = new Peer(myId);
 
     peer.on("open", id => {
-        log("PeerID: " + id);
-        peerReady = true;
-
-        setTimeout(()=>{
-            connectUsers(latestUserList);
-        }, 1000);
+        log("Peer接続: " + id);
     });
 
-    peer.on("error", err => log("Peerエラー: " + err));
-
     peer.on("call", call => {
-        log("着信: " + call.peer);
-
         call.answer(localStream);
-        attachCallEvents(call);
+        attachCall(call);
     });
 }
 
-// ===== Call処理 =====
-function attachCallEvents(call){
+// ===== 通話 =====
+function attachCall(call){
 
     call.on("stream", stream => {
 
-        // ★ 自分の音は再生しない
-        if(call.peer === myId){
-            log("自分の音スキップ");
-            return;
-        }
-
-        log("音声受信: " + call.peer);
+        if(call.peer === myId) return;
 
         let audio = new Audio();
         audio.srcObject = stream;
         audio.autoplay = true;
-        audio.setAttribute("playsinline", true);
-
-        audio.play().catch(()=>{});
+        audio.volume = 0.3; // ★重要
 
         audioMap[call.peer] = audio;
+
+        updateAudioState();
     });
-
-    call.on("close", ()=>{
-        log("通話終了: " + call.peer);
-
-        if(audioMap[call.peer]){
-            audioMap[call.peer].remove();
-            delete audioMap[call.peer];
-        }
-    });
-
-    call.on("error", err => log("通話エラー: " + err));
 }
 
-// ===== 接続 =====
-function connectUsers(users){
+// ===== 再生制御 =====
+function updateAudioState(){
 
-    if(!peerReady) return;
+    Object.keys(audioMap).forEach(id => {
 
-    users.forEach(id => {
+        const audio = audioMap[id];
+        if(!audio) return;
 
-        if(id !== myId && !connectedPeers[id]){
-
-            log("発信開始: " + id);
-
-            let call = peer.call(id, localStream);
-
-            attachCallEvents(call);
-
-            connectedPeers[id] = true;
+        if(id === currentSpeaker){
+            audio.muted = false;
+            audio.volume = 0.3;
+        }else{
+            audio.muted = true;
         }
     });
 }
 
-// ===== 再接続 =====
-setInterval(()=>{
-    if(peerReady && latestUserList.length){
-        connectUsers(latestUserList);
+// ===== マイク制御 =====
+function updateMicState(){
+
+    if(!localStream) return;
+
+    const track = localStream.getAudioTracks()[0];
+
+    if(currentSpeaker === myId || talkLocked){
+        track.enabled = true;
+    }else{
+        track.enabled = false;
     }
-}, 3000);
+}
 
 // ===== WebSocket =====
-socket.onopen = () => log("WS接続OK");
-
-socket.onmessage = msg => {
+socket.onmessage = async msg => {
 
     let data = JSON.parse(msg.data);
-
-    log("WS: " + data.type);
 
     if(data.type === "yourId"){
         myId = data.id;
         document.getElementById("myId").textContent = myId;
 
+        await init();
         createPeer();
-    }
-
-    if(data.type === "userList"){
-        latestUserList = data.users;
     }
 
     if(data.type === "speaker"){
         currentSpeaker = data.id;
 
         document.getElementById("speaker").textContent =
-            currentSpeaker ? currentSpeaker : "なし";
-    }
+            currentSpeaker || "なし";
 
-    if(data.type === "busy"){
-        log("他の人が話しています");
+        updateMicState();
+        updateAudioState();
     }
 };
 
-// ===== 発言制御（本番仕様）=====
-setInterval(() => {
-
-    if(localStream){
-        localStream.getAudioTracks()[0].enabled =
-            (currentSpeaker === myId || talkLocked);
-    }
-
-}, 100);
-
 // ===== ボタン =====
-let talk = document.getElementById("talk");
-
-talk.addEventListener("pointerdown", async (e)=>{
-    e.preventDefault();
-
-    if(!initialized) await init();
-
+document.getElementById("talk").onpointerdown = () => {
     socket.send(JSON.stringify({ type:"requestTalk" }));
-});
+};
 
-talk.addEventListener("pointerup", (e)=>{
-    e.preventDefault();
+document.getElementById("talk").onpointerup = () => {
+    socket.send(JSON.stringify({ type:"stopTalk", id: myId }));
+};
 
-    socket.send(JSON.stringify({
-        type:"stopTalk",
-        id: myId
-    }));
-});
-
-// ===== 固定ボタン =====
-let lockBtn = document.getElementById("lockTalk");
-
-lockBtn.addEventListener("click", async ()=>{
-
-    if(!initialized) await init();
+// ===== 固定 =====
+document.getElementById("lockTalk").onclick = () => {
 
     talkLocked = !talkLocked;
 
     if(talkLocked){
-        lockBtn.textContent = "🔓 固定ON";
         socket.send(JSON.stringify({ type:"requestTalk" }));
     }else{
-        lockBtn.textContent = "🔒 固定OFF";
         socket.send(JSON.stringify({ type:"stopTalk", id: myId }));
     }
-});
+
+    updateMicState();
+};
 
 </script>
 
