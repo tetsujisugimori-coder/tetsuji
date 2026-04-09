@@ -125,6 +125,20 @@ let talkLocked = false;
 let myName = "";
 let audioContext;
 
+async function unlockAll(){
+    if(initialized) return;
+    initialized = true;
+
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    await audioContext.resume();
+
+    localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+
+    localStream.getAudioTracks()[0].enabled = false;
+
+    startMicMonitor(localStream);
+}
+
 // ===== 初期化 =====
 async function init(){
 
@@ -427,18 +441,9 @@ let talk = document.getElementById("talk");
 talk.addEventListener("mousedown", async (e)=>{
     e.preventDefault();
 
-    if(!audioContext){
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    await unlockAll();  //ここで全て初期化
 
-    } 
-
-    playSound("start.mp3");
-
-    await audioContext.resume();
-
-    if(!initialized) await init();
-
-    playSound();
+    playSound("start.mp3")
 
     socket.send(JSON.stringify({ 
         type:"requestTalk",
@@ -465,8 +470,12 @@ talk.addEventListener("touchstart", talkDown);
 talk.addEventListener("touchend",talkUp);
 
 
-function talkDown(e){
+async function talkDown(e){
     e.preventDefault();
+
+    await unlockAll();
+
+    playSound("start.mp3");
 
     socket.send(JSON.stringify({
         type:"requestTalk",
@@ -489,13 +498,6 @@ function talkUp(e){
     talk.classList.remove("active");
 }
 
-//音エフェクト
-function playSound(){
-    const audio = new Audio("start.mp3");
-    audio.volume = 0.5;
-    audio.play();
-}
-
 // ===== 音量スライダー =====
 const slider = document.getElementById("volumeSlider");
 const volumeValue = document.getElementById("volumeValue");
@@ -516,7 +518,7 @@ lockBtn.addEventListener("click", async ()=>{
 
     playSound("lock.mp3");
 
-    if(!initialized) await init();
+    await unlockAll();
 
     socket.send(JSON.stringify({
         type:"requestTalk",
