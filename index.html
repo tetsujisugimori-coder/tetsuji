@@ -236,7 +236,7 @@ function connectUsers(users){
 
     if(!peerReady) return;
 
-    users.forEach(userId => {
+    users.forEach(user => {
         const userId = user.id
 
          if(userId !== myId && !connectedPeers[userId]){
