@@ -126,17 +126,25 @@ let myName = "";
 let audioContext;
 
 async function unlockAll(){
+
     if(initialized) return;
-    initialized = true;
 
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     await audioContext.resume();
 
-    localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    try{
+        localStream = await navigator.mediaDevices.getUserMedia({ audio:true });
 
-    localStream.getAudioTracks()[0].enabled = false;
+        localStream.getAudioTracks()[0].enabled = false;
 
-    startMicMonitor(localStream);
+        startMicMonitor(localStream);
+
+        initialized = true;
+
+        log("マイクOK");
+    }catch(e){
+        log("マイクNG: " + e.message);
+    }
 }
 
 // ===== 初期化 =====
@@ -254,15 +262,15 @@ function attachCallEvents(call){
 
 // ===== 接続 =====
 function connectUsers(users){
-
     
-
     if(!peerReady) return;
+    if(!localStream) return;    
+
 
     users.forEach(user => {
         const userId = user.id
 
-         if(userId !== myId && !connectedPeers[userId]){
+         if(userId !== myId && !connectedPeers[userId] && localStream){
 
             log("発信開始: " + userId);
 
