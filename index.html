@@ -382,6 +382,8 @@ socket.onmessage = msg => {
 
     if(data.type === "busy"){
         log("他の人が話しています");
+
+        playSound("error.mp3");
     }
 };
 
@@ -429,9 +431,14 @@ talk.addEventListener("mousedown", async (e)=>{
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
 
     } 
+
+    playSound("start.mp3");
+
     await audioContext.resume();
 
     if(!initialized) await init();
+
+    playSound();
 
     socket.send(JSON.stringify({ 
         type:"requestTalk",
@@ -472,6 +479,8 @@ function talkDown(e){
 function talkUp(e){
     e.preventDefault();
 
+    playSound("stop.mp3");
+
     socket.send(JSON.stringify({
         type:"stopTalk",
         id: myId
@@ -482,7 +491,7 @@ function talkUp(e){
 
 //音エフェクト
 function playSound(){
-    const audio = new Audio("click.mp3");
+    const audio = new Audio("start.mp3");
     audio.volume = 0.5;
     audio.play();
 }
@@ -504,6 +513,8 @@ let lockBtn = document.getElementById("lockTalk");
 let lockTimer = null;
 
 lockBtn.addEventListener("click", async ()=>{
+
+    playSound("lock.mp3");
 
     if(!initialized) await init();
 
@@ -541,6 +552,34 @@ lockBtn.addEventListener("click", async ()=>{
     // ★ ここも追加（重要）
     updateMicState();
 });
+
+
+let audioUnlocked = false;
+
+function unlockAudio(){
+
+    if(audioUnlocked) return;
+
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    audioContext.resume().then(()=>{
+        console.log("AudioContext 解放OK");
+        audioUnlocked = true;
+    }).catch(err=>{
+        console.log("解放失敗:", err);
+    });
+
+}
+
+function playSound(file){
+    const audio = new Audio("sounds/" + file);
+    audio.currentTime = 0;
+    audio.volume = 0.5;
+    audio.play().catch(()=>{});
+}
+
+document.addEventListener("touchstart", unlockAudio, { once:true });
+document.addEventListener("click", unlockAudio, { once:true });
 
 
 
