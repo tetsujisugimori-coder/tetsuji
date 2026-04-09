@@ -185,6 +185,10 @@ function createPeer(){
 function attachCallEvents(call){
 
     call.on("stream", stream => {
+        if(!call){
+            log("call undefined");
+            return;
+        }
 
         // ★ 自分の音は再生しない
         if(call.peer === myId){
@@ -228,15 +232,23 @@ function attachCallEvents(call){
 // ===== 接続 =====
 function connectUsers(users){
 
+    
+
     if(!peerReady) return;
 
     users.forEach(userId => {
+        const userId = user.id
 
          if(userId !== myId && !connectedPeers[userId]){
 
             log("発信開始: " + userId);
 
             let call = peer.call(userId, localStream);
+
+            if(!call){
+                log("call失敗: " + userId);
+                return;
+            }
 
             attachCallEvents(call);
 
