@@ -14,6 +14,12 @@ button {
   margin-right:10px;
   touch-action:manipulation;
 }
+
+button.active {
+    background: orange;
+    transform: scale(1.1);
+}
+
 #log {
   background:#000;
   color:#0f0;
@@ -21,6 +27,8 @@ button {
   height:200px;
   overflow:auto;
 }
+
+
 </style>
 </head>
 
@@ -104,6 +112,7 @@ let peer;
 let localStream;
 let myId = null;
 let currentSpeaker = null;
+let currentMode = null //manual or Lock
 let connectedPeers = {};
 let peerReady = false;
 let initialized = false;
@@ -267,6 +276,12 @@ function updateUserList(){
         li.textContent = (user.id === myId ? "👉 " : "") + (user.name || user.id);
         ul.appendChild(li);
     });
+    if(currentSpeaker){
+        const user = latestUserList.find(u => u.id === currentSpeaker);
+        const name = user ? (user.name || user.id) : currentSpeaker;
+
+        document.getElementById("speaker").textContent = name;
+    }
 }
 
 //名前送信
@@ -299,6 +314,16 @@ document.getElementById("changeName").addEventListener("click",()=>{
     if(newName){
         myName = newName;
         sendName();
+
+        //自分表示を更新
+        document.getElementById("myId").textContent =
+        myName + "(" + myId + ")";
+
+        //話者表示も更新
+        if(currentSpeaker === myId){
+            document.getElementById("speaker").textContent =
+            myName;
+        }
     }
 });
 
@@ -339,9 +364,18 @@ socket.onmessage = msg => {
     if(data.type === "speaker"){
         currentSpeaker = data.id;
 
-        document.getElementById("speaker").textContent =
-            currentSpeaker ? currentSpeaker : "なし";
+        let speakerName = "なし";
 
+        if(currentSpeaker === myId){
+            speakerName = myName || myId;
+        }else{
+            const user = latestUserList.find(u => u.id === currentSpeaker);
+            speakerName = user ? (user.name || user.id) : currentSpeaker;
+            
+        }
+
+        document.getElementById("speaker").textContent = speakerName;
+           
         updateAudioState(); //追加　
         updateMicState(); //追加
     }
@@ -388,7 +422,7 @@ function generateName(){
 // ===== ボタン =====
 let talk = document.getElementById("talk");
 
-talk.addEventListener("click", async (e)=>{
+talk.addEventListener("mousedown", async (e)=>{
     e.preventDefault();
 
     if(!audioContext){
@@ -399,7 +433,13 @@ talk.addEventListener("click", async (e)=>{
 
     if(!initialized) await init();
 
-    socket.send(JSON.stringify({ type:"requestTalk" }));
+    socket.send(JSON.stringify({ 
+        type:"requestTalk",
+        mode:"manual"
+     }));
+
+     //エフェクト
+     talk.classList.add("active");
 });
 
 talk.addEventListener("mouseup", (e)=>{
@@ -409,7 +449,43 @@ talk.addEventListener("mouseup", (e)=>{
         type:"stopTalk",
         id: myId
     }));
+
+    talk.classList.remove("active");
 });
+
+//iphone対応
+talk.addEventListener("touchstart", talkDown);
+talk.addEventListener("touchend",talkUp);
+
+
+function talkDown(e){
+    e.preventDefault();
+
+    socket.send(JSON.stringify({
+        type:"requestTalk",
+        mode:"manual"
+    }));
+
+    talk.classList.add("active");
+}
+
+function talkUp(e){
+    e.preventDefault();
+
+    socket.send(JSON.stringify({
+        type:"stopTalk",
+        id: myId
+    }));
+
+    talk.classList.remove("active");
+}
+
+//音エフェクト
+function playSound(){
+    const audio = new Audio("click.mp3");
+    audio.volume = 0.5;
+    audio.play();
+}
 
 // ===== 音量スライダー =====
 const slider = document.getElementById("volumeSlider");
@@ -425,20 +501,45 @@ slider.addEventListener("input", () => {
 // ===== 固定ボタン =====
 let lockBtn = document.getElementById("lockTalk");
 
+let lockTimer = null;
+
 lockBtn.addEventListener("click", async ()=>{
 
     if(!initialized) await init();
 
-    talkLocked = !talkLocked;
+    socket.send(JSON.stringify({
+        type:"requestTalk",
+        mode:"lock"
+    }));
 
-    if(talkLocked){
-        lockBtn.textContent = "🔓 固定ON";
-        socket.send(JSON.stringify({ type:"requestTalk" }));
-    }else{
-        lockBtn.textContent = "🔒 固定OFF";
-        socket.send(JSON.stringify({ type:"stopTalk", id: myId }));
-    }
-    updateMicState(); //追加
+    let remaining = 10;
+
+    clearInterval(lockTimer);
+
+    lockTimer = setInterval(()=>{
+
+        remaining--;
+
+        lockBtn.textContent = `🔓 固定ON (${remaining})`;
+
+        if(remaining <= 0){
+            clearInterval(lockTimer);
+
+            socket.send(JSON.stringify({
+                type:"stopTalk",
+                id: myId
+            }));
+
+            lockBtn.textContent = "🔒 固定OFF";
+        }
+
+        // ★ ここ追加（重要）
+        updateMicState();
+
+    },1000);
+
+    // ★ ここも追加（重要）
+    updateMicState();
 });
 
 

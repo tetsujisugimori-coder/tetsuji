@@ -33,13 +33,14 @@ function setSpeakerTimeout() {
             console.log("タイムアウト解除:", currentSpeaker);
 
             currentSpeaker = null;
+            currentMode = null;
 
             broadcast({
                 type: "speaker",
                 id: null
             });
         }
-    }, 5000);
+    }, sec * 1000);
 }
 
 // ===== 全体送信 =====
@@ -102,15 +103,22 @@ wss.on("connection", ws => {
 
                 currentSpeaker = ws.id;
 
-                console.log("話者:", ws.id);
+                //モード判定
+                currentMode = data.mode || "manual";
+
+                console.log("話者:", ws.id, "mode:",currentMode);
 
                 broadcast({
                     type: "speaker",
                     id: ws.id
                 });
 
-                setSpeakerTimeout();
-
+                //固定のみタイムアウト
+                if(currentMode === "Lock"){
+                    setSpeakerTimeout(10);  //10秒
+                    
+                }
+                        
             } else {
 
                 ws.send(JSON.stringify({
