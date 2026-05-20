@@ -34,8 +34,6 @@ button.active {
 
 <body>
 
-<body>
-
 <script>
 console.log("JSスタート");
 </script>
@@ -262,28 +260,31 @@ function attachCallEvents(call){
 
 // ===== 接続 =====
 function connectUsers(users){
-    
-    if(!peerReady) return;
-    if(!localStream) return;    
 
+    if(!peerReady) return;
+    if(!localStream) return;
 
     users.forEach(user => {
-        const userId = user.id
+        const userId = user.id;
 
-         if(userId !== myId && !connectedPeers[userId] && localStream){
+        if(userId !== myId && !connectedPeers[userId]){
 
             log("発信開始: " + userId);
 
-            let call = peer.call(userId, localStream);
+            try{
+                let call = peer.call(userId, localStream);
 
-            if(!call){
-                log("call失敗: " + userId);
-                return;
+                if(!call){
+                    log("call失敗: " + userId);
+                    return;
+                }
+
+                attachCallEvents(call);
+                connectedPeers[userId] = true;
+
+            }catch(e){
+                log("call例外: " + e.message);
             }
-
-            attachCallEvents(call);
-
-            connectedPeers[userId] = true;
         }
     });
 }
@@ -493,8 +494,10 @@ async function talkDown(e){
     talk.classList.add("active");
 }
 
-function talkUp(e){
+async function talkUp(e){
     e.preventDefault();
+
+    await unlockAll(); // 追加（安全）
 
     playSound("stop.mp3");
 
@@ -524,9 +527,11 @@ let lockTimer = null;
 
 lockBtn.addEventListener("click", async ()=>{
 
+    await unlockAll();
+
     playSound("lock.mp3");
 
-    await unlockAll();
+    
 
     socket.send(JSON.stringify({
         type:"requestTalk",
@@ -570,9 +575,10 @@ function unlockAudio(){
 
     if(audioUnlocked) return;
 
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-
-    audioContext.resume().then(()=>{
+    if(!audioContext){
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+      audioContext.resume().then(()=>{
         console.log("AudioContext 解放OK");
         audioUnlocked = true;
     }).catch(err=>{
@@ -582,10 +588,20 @@ function unlockAudio(){
 }
 
 function playSound(file){
+
+    if(!audioContext) return;
+
+    if(audioContext.state === "suspended"){
+        audioContext.resume();
+    }
+
     const audio = new Audio("sounds/" + file);
     audio.currentTime = 0;
     audio.volume = 0.5;
-    audio.play().catch(()=>{});
+
+    audio.play().catch(err=>{
+        console.log("音再生エラー:", err);
+    });
 }
 
 document.addEventListener("touchstart", unlockAudio, { once:true });
